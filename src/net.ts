@@ -60,7 +60,7 @@ export class RemotePlayer implements Target {
 }
 
 export interface NetEvents {
-  welcome(id: number, room: string, players: PlayerInfo[]): void;
+  welcome(id: number, room: string, players: PlayerInfo[], map?: string): void;
   join(p: PlayerInfo): void; leave(id: number): void;
   state(id: number, m: any): void; fire(id: number, m: any): void;
   hit(from: number, dmg: number, dir: number[], kind: string): void;
@@ -71,22 +71,22 @@ export interface NetEvents {
 export class Net {
   ws: WebSocket | null = null; id = 0; online = false; private acc = 0;
   constructor(private ev: NetEvents) {}
-  static url(room: string, name: string): string {
+  static url(room: string, name: string, map = 'boreal'): string {
     const override = new URLSearchParams(location.search).get('server');
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     const base = override ? (/^wss?:/.test(override) ? override : `${proto}://${override}`) : `${proto}://${location.port === '5173' ? `${location.hostname}:8080` : location.host}`;
-    return `${base}/ws?room=${encodeURIComponent(room)}&name=${encodeURIComponent(name)}`;
+    return `${base}/ws?room=${encodeURIComponent(room)}&name=${encodeURIComponent(name)}&map=${map}`;
   }
-  connect(room: string, name: string) {
+  connect(room: string, name: string, map = 'boreal') {
     this.ev.status('connecting');
-    const ws = new WebSocket(Net.url(room, name)); this.ws = ws;
+    const ws = new WebSocket(Net.url(room, name, map)); this.ws = ws;
     ws.onopen = () => { this.online = true; };
     ws.onclose = () => { if (this.online) this.ev.status('offline'); this.online = false; };
     ws.onerror = () => { if (!this.online) this.ev.status('offline'); };
     ws.onmessage = e => {
       let m: any; try { m = JSON.parse(e.data); } catch { return; }
       switch (m.t) {
-        case 'welcome': this.id = m.id; this.ev.status('online'); this.ev.welcome(m.id, m.room, m.players); break;
+        case 'welcome': this.id = m.id; this.ev.status('online'); this.ev.welcome(m.id, m.room, m.players, m.map); break;
         case 'full': this.ev.status('full'); break;
         case 'join': this.ev.join(m.player); break;
         case 'leave': this.ev.leave(m.id); break;

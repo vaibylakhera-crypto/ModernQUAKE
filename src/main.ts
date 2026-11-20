@@ -3,7 +3,7 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { Sky, Stars } from './sky';
+import { Sky, Stars, SKY_PRESETS } from './sky';
 import { World } from './world';
 import { kitOptions } from './kit';
 import { getQuality } from './quality';
@@ -19,6 +19,8 @@ import { Net, RemotePlayer, PlayerInfo } from './net';
 import { WEAPON_ORDER, WEAPON_DEFS } from './weapons';
 
 const Q = getQuality();
+const MAP = new URLSearchParams(location.search).get('map') === 'void' ? 'void' : 'boreal';
+const SKYP = SKY_PRESETS[MAP];
 kitOptions.cheap = !Q.pbr;
 
 const renderer = new THREE.WebGLRenderer({ antialias: Q.antialias, powerPreference: 'high-performance', stencil: false });
@@ -35,7 +37,7 @@ const camera = new THREE.PerspectiveCamera(100, innerWidth / innerHeight, 0.05, 
 camera.rotation.order = 'YXZ';
 
 // sky: live shader on high, baked once to a cubemap on low/med (no per-frame noise cost)
-const sky = new Sky('boreal');
+const sky = new Sky(MAP);
 if (Q.liveSky) scene.add(sky.mesh);
 else {
   const rt = new THREE.WebGLCubeRenderTarget(Q.skyCube, { generateMipmaps: false, minFilter: THREE.LinearFilter });
@@ -50,15 +52,15 @@ else {
 }
 if (Q.liveSky) {                                             // high: reflections from the live sky shader
   const pm = new THREE.PMREMGenerator(renderer);
-  const skyScene = new THREE.Scene(); skyScene.add(new Sky('boreal').mesh);
+  const skyScene = new THREE.Scene(); skyScene.add(new Sky(MAP).mesh);
   scene.environment = pm.fromScene(skyScene, 0, 0.1, 1000).texture; scene.environmentIntensity = 1.6;
 }
 
-const stars = new Stars(sky.bandN);
+const stars = new Stars(sky.bandN, SKYP.stars);
 scene.add(stars.mesh);
 scene.fog = new THREE.FogExp2(0x05070f, 0.0025);   // depth cue: far platforms sink into the void
 
-const surround = buildSurround(); scene.add(surround.group);
+const surround = buildSurround(); if (MAP === 'boreal') scene.add(surround.group);
 const world = new World(Q);
 scene.add(world.group);
 world.build();
@@ -100,14 +102,21 @@ let jumpQueued = false;
 let yaw = 0, pitch = 0;
 const startEl = document.getElementById('start')!;
 const locked = () => document.pointerLockElement === renderer.domElement;
-startEl.addEventListener('click', () => renderer.domElement.requestPointerLock());
-document.addEventListener('pointerlockchange', () => { startEl.style.display = locked() ? 'none' : 'flex'; });
+let lockedAt = 0, lockExitAt = 0;
+function resume() {
+  const wait = Math.max(0, 1300 - (performance.now() - lockExitAt));      // Chrome refuses a re-lock for ~1 s after Esc
+  const go = () => { try { const r: any = renderer.domElement.requestPointerLock(); if (r && r.catch) r.catch(() => setTimeout(go, 400)); } catch { /* wait for a click */ } };
+  if (wait > 0) setTimeout(go, wait); else go();
+}
+startEl.addEventListener('click', resume);
+document.addEventListener('pointerlockchange', () => { if (locked()) lockedAt = performance.now(); else lockExitAt = performance.now(); startEl.style.display = locked() ? 'none' : 'flex'; });
 addEventListener('mousemove', e => {
   if (!locked()) return;
   yaw -= e.movementX * 0.0022; pitch -= e.movementY * 0.0022; lookDX += e.movementX; lookDY += e.movementY;
   pitch = Math.max(-Math.PI / 2 + 0.01, Math.min(Math.PI / 2 - 0.01, pitch));
 });
 addEventListener('keydown', e => {
+  if (!locked() && (e.code === 'Escape' || e.code === 'Enter') && !(e.target instanceof HTMLInputElement) && !(e.target instanceof HTMLSelectElement)) { resume(); return; }
   if (e.repeat) return;           // holding space never auto-hops
   keys.add(e.code);
   if (e.code === 'Space') jumpQueued = true;
@@ -198,7 +207,7 @@ function drawNet() {
 }
 const net = new Net({
   status(st) { netState = st; (document.getElementById('netstat')!).textContent = st === 'offline' ? 'Could not reach the server - playing offline' : st === 'full' ? 'Room is full (8 max)' : ''; drawNet(); },
-  welcome(_id, _room, players) { scoreboard = players; for (const p of players) addRemote(p); say('CONNECTED'); drawNet(); },
+  welcome(_id, _room, players, map) { if (map && map !== MAP) { const u = new URLSearchParams(location.search); u.set('map', map); location.search = u.toString(); return; } scoreboard = players; for (const p of players) addRemote(p); say('CONNECTED'); drawNet(); },
   join(p) { scoreboard.push(p); addRemote(p); say(`${p.name} JOINED`); drawNet(); },
   leave(id) { const r = remotes.get(id); if (r) { say(`${r.info.name} LEFT`); r.dispose(); targets.splice(targets.indexOf(r), 1); remotes.delete(id); } scoreboard = scoreboard.filter(p => p.id !== id); drawNet(); },
   state(id, m) { remotes.get(id)?.setState(m.p, m.yaw, m.w, m.hp, !!m.dead); },
@@ -216,14 +225,16 @@ function wireOnlineUI() {
   nameI.value = myName !== 'PLAYER' ? myName : saved('mq-name'); roomI.value = roomCode || saved('mq-room');
   for (const e of [nameI, roomI, go]) e.addEventListener('click', ev => ev.stopPropagation());
   for (const e of [nameI, roomI]) e.addEventListener('keydown', ev => { ev.stopPropagation(); if ((ev as KeyboardEvent).key === 'Enter') go.click(); });
+  const mapI = document.getElementById('pmap') as HTMLSelectElement; mapI.value = MAP; mapI.addEventListener('click', ev => ev.stopPropagation());
+  mapI.addEventListener('change', () => { const u = new URLSearchParams(location.search); u.set('map', mapI.value); location.search = u.toString(); });
   go.addEventListener('click', () => {
     const n = (nameI.value || 'PLAYER').trim(), r = (roomI.value || 'LOBBY').trim();
     try { localStorage.setItem('mq-name', n); localStorage.setItem('mq-room', r); } catch { /* ignore */ }
-    location.search = `?room=${encodeURIComponent(r)}&name=${encodeURIComponent(n)}`;
+    location.search = `?room=${encodeURIComponent(r)}&name=${encodeURIComponent(n)}&map=${mapI.value}`;
   });
 }
 wireOnlineUI();
-if (roomCode) net.connect(roomCode, myName);
+if (roomCode) net.connect(roomCode, myName, MAP);
 function die(why: string) {
   if (net.online) net.send({ t: 'dead', by: lastAttacker });
   say(why === 'EXPLODED' ? 'YOU BLEW UP' : why === 'FELL' ? 'YOU FELL' : 'YOU DIED'); player.respawn(); yaw = player.yaw; pitch = 0;

@@ -63,7 +63,7 @@ void main(){
   float f = abs(dot(normalize(vN), normalize(vV)));          // soft silhouette: bright core, fading edges
   float fade = pow(1.0 - vY, 1.7);
   float shimmer = 0.85 + 0.15 * sin(vY * 14.0 - uTime * 4.0);
-  gl_FragColor = vec4(uColor, pow(f, 1.4) * fade * 0.42 * shimmer);
+  gl_FragColor = vec4(uColor, pow(f, 1.4) * fade * 0.42 * shimmer * smoothstep(1.2, 5.5, length(vV)));   // fades out when the camera is inside / close
 }`;
 
 const moteVert = /* glsl */ `

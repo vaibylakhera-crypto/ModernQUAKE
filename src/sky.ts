@@ -15,7 +15,7 @@ const frag = /* glsl */ `
 precision highp float;
 varying vec3 vDir;
 uniform vec3 uSunDir, uPlanetDir, uMoonDir, uBandN;
-uniform float uSeed;
+uniform float uSeed; uniform vec4 uK;
 uniform vec3 uAurA, uAurB, uAurC, uNebA, uNebB, uNebC;
 
 float h31(vec3 p){ p = fract(p*0.1031); p += dot(p, p.zyx + 31.32); return fract((p.x + p.y) * p.z); }
@@ -152,19 +152,20 @@ vec4 moon(vec3 d){
 
 void main(){
   vec3 d = normalize(vDir);
-  vec3 col = vec3(0.004, 0.005, 0.012) + vec3(0.012, 0.006, 0.02) * (0.5 + 0.5*d.y);
-  col += galaxy(d);
-  col += nebula(d);
-  col += aurora(d);
-  col += sun(d);
+  vec3 col = vec3(0.004, 0.005, 0.012) * (0.4 + uK.y) + vec3(0.012, 0.006, 0.02) * (0.5 + 0.5*d.y) * uK.y;
+  col += galaxy(d) * uK.x;
+  col += nebula(d) * uK.y;
+  col += aurora(d) * uK.z;
+  col += sun(d) * uK.w;
   vec4 m = moon(d);   col = mix(col, m.rgb, m.a);
   vec4 p = planet(d); col = mix(col, p.rgb, clamp(p.a, 0.0, 1.0));
   col = col / (1.0 + col*0.45);      // soft shoulder, no hard clipping
   gl_FragColor = vec4(col, 1.0);
 }`;
 
-export interface SkyPreset { aurA: number; aurB: number; aurC: number; nebA: number; nebB: number; nebC: number; planet: [number, number, number]; moon: [number, number, number]; sun: [number, number, number]; band: [number, number, number]; seed: number }
+export interface SkyPreset { aurA: number; aurB: number; aurC: number; nebA: number; nebB: number; nebC: number; planet: [number, number, number]; moon: [number, number, number]; sun: [number, number, number]; band: [number, number, number]; seed: number; k?: [number, number, number, number]; stars?: number }
 export const SKY_PRESETS: Record<string, SkyPreset> = {
+  void:    { aurA: 0x000000, aurB: 0x000000, aurC: 0x000000, nebA: 0x14103a, nebB: 0x0a2440, nebC: 0x301030, planet: [0.62, 0.16, -0.77], moon: [0.30, 0.42, -0.86], sun: [-0.78, 0.22, 0.58], band: [0.35, 0.85, 0.40], seed: 5.2, k: [0.7, 0.16, 0, 0.5], stars: 3200 },
   boreal:  { aurA: 0x32ff9c, aurB: 0x1ec8e8, aurC: 0xb454ff, nebA: 0x2a1466, nebB: 0x0d4a72, nebC: 0xc02a8a, planet: [0.62, 0.16, -0.77], moon: [0.30, 0.42, -0.86], sun: [-0.78, 0.22, 0.58], band: [0.35, 0.85, 0.40], seed: 3.7 },
   crimson: { aurA: 0xff4d86, aurB: 0xff9a2d, aurC: 0x8a3dff, nebA: 0x5a0f2a, nebB: 0x2a1a6a, nebC: 0xff6a2a, planet: [-0.70, 0.22, -0.68], moon: [0.5, 0.25, -0.82], sun: [0.8, 0.2, 0.55], band: [-0.3, 0.9, 0.3], seed: 9.1 },
 };
@@ -182,7 +183,7 @@ export class Sky {
       vertexShader: vert, fragmentShader: frag, side: THREE.BackSide, depthWrite: false, depthTest: false,
       uniforms: {
         uSunDir: { value: this.sunDir }, uPlanetDir: { value: new THREE.Vector3(...p.planet).normalize() },
-        uMoonDir: { value: new THREE.Vector3(...p.moon).normalize() }, uBandN: { value: this.bandN }, uSeed: { value: p.seed },
+        uMoonDir: { value: new THREE.Vector3(...p.moon).normalize() }, uBandN: { value: this.bandN }, uSeed: { value: p.seed }, uK: { value: new THREE.Vector4(...(p.k ?? [1, 1, 1, 1])) },
         uAurA: { value: new THREE.Color(p.aurA) }, uAurB: { value: new THREE.Color(p.aurB) }, uAurC: { value: new THREE.Color(p.aurC) },
         uNebA: { value: new THREE.Color(p.nebA) }, uNebB: { value: new THREE.Color(p.nebB) }, uNebC: { value: new THREE.Color(p.nebC) },
       },
@@ -206,12 +207,12 @@ export class Stars {
       const u = r() * 2 - 1, a = r() * Math.PI * 2, s = Math.sqrt(1 - u * u);
       const dx = s * Math.cos(a), dy = u, dz = s * Math.sin(a);
       const lat = dx * bandN.x + dy * bandN.y + dz * bandN.z;
-      if (r() > 0.08 + 0.92 * Math.exp(-lat * lat * 10)) continue;       // bias towards the band
+      if (r() > (count > 2500 ? 0.45 : 0.08) + (count > 2500 ? 0.55 : 0.92) * Math.exp(-lat * lat * 10)) continue;       // bias towards the band
       pos.set([dx * 450, dy * 450, dz * 450], i * 3);
       const b = Math.pow(r(), 3.4), warm = r();
       const c = new THREE.Color().setRGB(0.72 + warm * 0.28, 0.82 + (1 - warm) * 0.14, 1.0 - warm * 0.4);
       col.set([c.r * (0.3 + b), c.g * (0.3 + b), c.b * (0.3 + b)], i * 3);
-      size[i] = 0.9 + b * 2.4; i++;
+      size[i] = count > 2500 ? 1.0 + b * 1.6 : 0.9 + b * 2.4; i++;
     }
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('aCol', new THREE.BufferAttribute(col, 3)); g.setAttribute('aSize', new THREE.BufferAttribute(size, 1));

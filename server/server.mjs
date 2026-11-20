@@ -34,12 +34,12 @@ wss.on('connection', (ws, req) => {
   const u = new URL(req.url, 'http://x');
   const code = (u.searchParams.get('room') || 'LOBBY').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12) || 'LOBBY';
   const name = (u.searchParams.get('name') || 'PLAYER').replace(/[^\w \-]/g, '').slice(0, 14) || 'PLAYER';
-  let room = rooms.get(code); if (!room) { room = { players: new Map() }; rooms.set(code, room); }
+  let room = rooms.get(code); if (!room) { room = { players: new Map(), map: u.searchParams.get('map') === 'void' ? 'void' : 'boreal' }; rooms.set(code, room); }
   if (room.players.size >= MAX) { send(ws, { t: 'full' }); ws.close(); return; }
   const id = nextId++; const used = new Set([...room.players.values()].map(p => p.color));
   const color = COLORS.find(c => !used.has(c)) ?? COLORS[id % COLORS.length];
   room.players.set(id, { ws, name, color, frags: 0, deaths: 0 });
-  send(ws, { t: 'welcome', id, room: code, players: board(room) });
+  send(ws, { t: 'welcome', id, room: code, map: room.map, players: board(room) });
   bcast(room, { t: 'join', player: { id, name, color, frags: 0, deaths: 0 } }, id);
   console.log(`[${code}] + ${name} (#${id}) — ${room.players.size} in room`);
 
