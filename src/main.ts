@@ -17,6 +17,7 @@ import { Bot, spawnBots } from './bot';
 import { buildSurround } from './surround';
 import { Net, RemotePlayer, PlayerInfo } from './net';
 import { WEAPON_ORDER, WEAPON_DEFS } from './weapons';
+import { TouchControls, isTouch as touchDevice, goFullscreen } from './touch';
 
 const Q = getQuality();
 const MAP = new URLSearchParams(location.search).get('map') === 'void' ? 'void' : 'boreal';
@@ -101,9 +102,12 @@ const keys = new Set<string>();
 let jumpQueued = false;
 let yaw = 0, pitch = 0;
 const startEl = document.getElementById('start')!;
-const locked = () => document.pointerLockElement === renderer.domElement;
+const TOUCH = touchDevice || new URLSearchParams(location.search).has('touch');
+let touchPlaying = false;
+const locked = () => touchPlaying || document.pointerLockElement === renderer.domElement;
 let lockedAt = 0, lockExitAt = 0;
 function resume() {
+  if (TOUCH) { goFullscreen(); touchPlaying = true; startEl.style.display = 'none'; touch?.show(true); return; }
   const wait = Math.max(0, 1300 - (performance.now() - lockExitAt));      // Chrome refuses a re-lock for ~1 s after Esc
   const go = () => { try { const r: any = renderer.domElement.requestPointerLock(); if (r && r.catch) r.catch(() => setTimeout(go, 400)); } catch { /* wait for a click */ } };
   if (wait > 0) setTimeout(go, wait); else go();
@@ -123,6 +127,27 @@ addEventListener('keydown', e => {
   if (e.code === 'KeyR') { die('DIED'); }
 });
 addEventListener('keyup', e => keys.delete(e.code));
+let touch: TouchControls | null = null;
+if (TOUCH) {
+  document.body.classList.add('touch');
+  touch = new TouchControls({
+    look(dx, dy) {
+      if (!touchPlaying) return;
+      const k = 0.0058 * touchSens; yaw -= dx * k; pitch -= dy * k; lookDX += dx * 0.6; lookDY += dy * 0.6;
+      pitch = Math.max(-Math.PI / 2 + 0.01, Math.min(Math.PI / 2 - 0.01, pitch));
+    },
+    jump() { jumpQueued = true; },
+    nextWeapon() { vm.select(loadout.step(vm.target, 1)); },
+    pause() { touchPlaying = false; touch!.show(false); startEl.style.display = 'flex'; },
+  });
+  touch.show(false);
+  document.addEventListener('visibilitychange', () => { if (document.hidden && touchPlaying) { touchPlaying = false; touch!.show(false); startEl.style.display = 'flex'; } });
+}
+let touchSens = 1;
+try { touchSens = Number(localStorage.getItem('mq-sens')) || 1; } catch { /* ignore */ }
+{ const si = document.getElementById('psens') as HTMLInputElement | null;
+  if (si) { si.value = String(touchSens); for (const ev of ['click', 'touchstart', 'touchend'] as const) si.addEventListener(ev, e => e.stopPropagation());
+    si.addEventListener('input', () => { touchSens = Number(si.value) || 1; try { localStorage.setItem('mq-sens', String(touchSens)); } catch { /* ignore */ } }); } }
 
 // ---- weapons / loadout / combat / pickups ----
 const vm = new Viewmodel();
@@ -131,6 +156,7 @@ const wbar = document.getElementById('wbar')!;
 WEAPON_ORDER.forEach((id, i) => {
   const d = document.createElement('div'); d.className = 'wslot'; d.id = 'w-' + id; d.style.setProperty('--c', '#' + WEAPON_DEFS[id].color.toString(16).padStart(6, '0'));
   d.innerHTML = `<b>${i + 1}</b>${WEAPON_DEFS[id].name}<i></i>`; wbar.appendChild(d);
+  d.addEventListener('touchstart', e => { e.preventDefault(); e.stopPropagation(); if (loadout.has(id)) vm.select(id); }, { passive: false });
 });
 let lastBar = '';
 function refreshBar() {
@@ -143,6 +169,7 @@ function refreshBar() {
   }
 }
 let mouseDown = false, lookDX = 0, lookDY = 0;
+const firing = () => mouseDown || !!touch?.fire;
 addEventListener('mousedown', e => { if (locked() && e.button === 0) mouseDown = true; });
 addEventListener('mouseup', e => { if (e.button === 0) mouseDown = false; });
 addEventListener('wheel', e => { if (locked()) vm.select(loadout.step(vm.target, e.deltaY > 0 ? 1 : -1)); });
@@ -258,7 +285,7 @@ const _dir = new THREE.Vector3(), _eye = new THREE.Vector3();
 function tryFire(dt: number) {
   loadout.cooldown -= dt;
   const id = vm.current; const st = WEAPON_DEFS[id].stats;
-  if (!(mouseDown && locked()) || loadout.cooldown > 0 || vm.switching) return;
+  if (!(firing() && locked()) || loadout.cooldown > 0 || vm.switching) return;
   if (!loadout.canFire(id)) { loadout.cooldown = 0.3; if (id !== 'blade' && id !== 'pistol') vm.select(loadout.best()); return; }
   loadout.cooldown = st.interval; loadout.consume(id);
   doFire(id);
@@ -281,9 +308,9 @@ function frame(now: number) {
   acc += Math.min(0.1, frameMs / 1000); last = now;
   while (acc >= DT) {
     const input: Input = {
-      forward: (keys.has('KeyW') ? 1 : 0) - (keys.has('KeyS') ? 1 : 0),
-      side: (keys.has('KeyD') ? 1 : 0) - (keys.has('KeyA') ? 1 : 0),
-      jumpPressed: jumpQueued, crouch: keys.has('KeyC') || keys.has('ControlLeft'), yaw,
+      forward: Math.max(-1, Math.min(1, (keys.has('KeyW') ? 1 : 0) - (keys.has('KeyS') ? 1 : 0) + (touch?.forward ?? 0))),
+      side: Math.max(-1, Math.min(1, (keys.has('KeyD') ? 1 : 0) - (keys.has('KeyA') ? 1 : 0) + (touch?.side ?? 0))),
+      jumpPressed: jumpQueued, crouch: keys.has('KeyC') || keys.has('ControlLeft') || !!touch?.crouch, yaw,
     };
     jumpQueued = false;
     player.step(input, DT);
@@ -313,7 +340,7 @@ function frame(now: number) {
   world.update(now / 1000); surround.update(now / 1000);
   hud();
   if (composer) composer.render(); else renderer.render(scene, camera);
-  vm.update(Math.min(0.05, frameMs / 1000), { speed: player.speedXZ, grounded: player.grounded, lookDX, lookDY, spinning: mouseDown && locked() && vm.current === 'nailer', beam: mouseDown && locked() && vm.current === 'arc' }); lookDX = lookDY = 0;
+  vm.update(Math.min(0.05, frameMs / 1000), { speed: player.speedXZ, grounded: player.grounded, lookDX, lookDY, spinning: firing() && locked() && vm.current === 'nailer', beam: firing() && locked() && vm.current === 'arc' }); lookDX = lookDY = 0;
   { const ac = renderer.autoClear; renderer.autoClear = false; renderer.clearDepth(); renderer.render(vm.scene, vm.camera); renderer.autoClear = ac; }
   adapt(frameMs);
   requestAnimationFrame(frame);

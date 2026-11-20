@@ -2,7 +2,15 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover" />
+<meta name="theme-color" content="#000000" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="ModernQUAKE" />
+<link rel="manifest" href="/manifest.webmanifest" />
+<link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
+<link rel="apple-touch-icon" href="/apple-touch-icon.png" />
 <title>ModernQUAKE</title>
 <style>
   html,body{margin:0;height:100%;background:#000;overflow:hidden;font-family:"Rajdhani","Segoe UI",system-ui,sans-serif;color:#dff}
@@ -42,6 +50,50 @@
   .wslot i{display:block;font-style:normal;font-size:12px;letter-spacing:1px;min-height:14px;color:#cfe}
   .wslot.on{opacity:1 !important;transform:translateY(-6px);border-color:var(--c);box-shadow:0 0 14px var(--c)}
   kbd{border:1px solid #7ffff055;border-radius:4px;padding:1px 7px;margin:0 2px;background:#0008}
+  html,body{touch-action:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent;overscroll-behavior:none}
+  input,select{-webkit-user-select:text;user-select:text}
+  .tonly{display:none}
+  /* ---- touch / phone ---- */
+  #touch{position:fixed;inset:0;z-index:4;display:none}
+  .tstick{position:absolute;width:120px;height:120px;margin:-60px 0 0 -60px;border-radius:50%;border:2px solid #7ffff055;background:#0a1a2a55;opacity:0;pointer-events:none;transition:opacity .15s}
+  .tstick i{position:absolute;left:50%;top:50%;width:54px;height:54px;border-radius:50%;background:#7ffff0aa;box-shadow:0 0 14px #0ff8;transform:translate(-50%,-50%)}
+  .tbtn{position:absolute;border-radius:50%;border:2px solid #7ffff066;background:#06121f88;color:#dff;font:700 13px "Rajdhani","Segoe UI",system-ui,sans-serif;letter-spacing:2px;padding:0;touch-action:none;-webkit-tap-highlight-color:transparent}
+  .tbtn.on{background:#7ffff0aa;color:#04101c;border-color:#7ffff0}
+  .tfire{width:96px;height:96px;right:calc(28px + env(safe-area-inset-right));bottom:calc(70px + env(safe-area-inset-bottom));border-color:#ff6a5aaa;font-size:16px}
+  .tfire.on{background:#ff6a5acc;border-color:#ff9a8a}
+  .tjump{width:72px;height:72px;right:calc(140px + env(safe-area-inset-right));bottom:calc(40px + env(safe-area-inset-bottom))}
+  .tcrouch{width:56px;height:56px;right:calc(140px + env(safe-area-inset-right));bottom:calc(132px + env(safe-area-inset-bottom));font-size:11px}
+  .tweap{width:56px;height:56px;right:calc(48px + env(safe-area-inset-right));bottom:calc(184px + env(safe-area-inset-bottom));font-size:22px}
+  .tpause{width:44px;height:44px;left:50%;top:calc(6px + env(safe-area-inset-top));margin-left:-22px;font-size:12px;letter-spacing:0}
+  body.touch .tonly{display:block}
+  body.touch .monly{display:none}
+  body.touch #medal{display:none}
+  body.touch #speed{display:none}
+  body.touch #cross{transform:scale(1.15)}
+  body.touch .stat{font-size:34px;bottom:auto;top:calc(48px + env(safe-area-inset-top))}
+  body.touch .stat small{font-size:10px;letter-spacing:2px}
+  body.touch #hp{left:calc(20px + env(safe-area-inset-left))}
+  body.touch #ar{left:calc(110px + env(safe-area-inset-left))}
+  body.touch #frags{font-size:16px;top:calc(12px + env(safe-area-inset-top));left:calc(20px + env(safe-area-inset-left))}
+  body.touch #net{font-size:12px;top:calc(10px + env(safe-area-inset-top));right:calc(16px + env(safe-area-inset-right))}
+  body.touch #wbar{z-index:6;pointer-events:auto;gap:4px;bottom:calc(4px + env(safe-area-inset-bottom))}
+  body.touch .wslot{min-width:40px;font-size:8px;letter-spacing:0}
+  body.touch .wslot b{font-size:15px}
+  body.touch .wslot i{font-size:10px;min-height:11px}
+  body.touch .wslot:not(.own){display:none}
+  body.touch #msg{font-size:17px;top:30%}
+  body.touch #start{overflow-y:auto;justify-content:flex-start;padding:calc(16px + env(safe-area-inset-top)) 16px 16px;box-sizing:border-box}
+  body.touch #start h1{font-size:clamp(30px,8vw,56px);letter-spacing:6px;margin-top:auto}
+  body.touch #start>:last-child{margin-bottom:auto}
+  body.touch #start p{font-size:14px;text-align:center}
+  body.touch #online{flex-wrap:wrap;justify-content:center;margin-top:10px}
+  body.touch #online input{width:120px;font-size:16px}
+  #sensrow{align-items:center;gap:10px;margin-top:10px;font-size:13px;letter-spacing:2px}
+  body.touch #sensrow.tonly{display:flex}
+  #rotate{display:none;position:fixed;inset:0;z-index:20;background:#000;color:#dff;align-items:center;justify-content:center;flex-direction:column;text-align:center;font-size:20px;letter-spacing:3px;padding:24px}
+  #rotate b{font-size:56px;display:block;margin-bottom:12px;animation:rot 1.6s ease-in-out infinite}
+  @keyframes rot{0%,30%{transform:rotate(0)}60%,100%{transform:rotate(90deg)}}
+  @media (orientation:portrait){body.touch #rotate{display:flex}}
 </style>
 </head>
 <body>
@@ -59,13 +111,17 @@
 </div>
 <div id="start">
   <h1>MODERNQUAKE</h1>
-  <p>CLICK TO PLAY &nbsp;·&nbsp; ESC or ENTER to resume</p>
-  <p><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move &nbsp; <kbd>SPACE</kbd> jump (tap each hop) &nbsp; <kbd>C</kbd> crouch &nbsp; <kbd>R</kbd> respawn</p>
+  <p class="monly">CLICK TO PLAY &nbsp;·&nbsp; ESC or ENTER to resume</p>
+  <p class="monly"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move &nbsp; <kbd>SPACE</kbd> jump (tap each hop) &nbsp; <kbd>C</kbd> crouch &nbsp; <kbd>R</kbd> respawn</p>
+  <p class="tonly"><b>TAP ANYWHERE TO PLAY</b></p>
+  <p class="tonly">Left thumb: move &nbsp;·&nbsp; Right thumb: drag to aim &nbsp;·&nbsp; Hold FIRE and drag to shoot while aiming</p>
   <p>Strafe + turn in the air to gain speed. Step on the glowing pads.</p>
   <div id="online" style="margin-top:14px"><select id="pmap"><option value="boreal">MAP: AURORA STATION</option><option value="void">MAP: DEEP VOID</option></select></div>
   <div id="online"><input id="pname" maxlength="14" placeholder="NAME"><input id="proom" maxlength="12" placeholder="ROOM CODE"><button id="pgo">PLAY ONLINE</button></div>
+  <div id="sensrow" class="tonly">AIM SPEED <input id="psens" type="range" min="0.4" max="2.5" step="0.1" value="1"></div>
   <p id="netstat" style="font-size:13px;opacity:.7"></p>
 </div>
+<div id="rotate"><b>📱</b>TURN YOUR PHONE SIDEWAYS</div>
 <script type="module" src="/src/main.ts"></script>
 </body>
 </html>

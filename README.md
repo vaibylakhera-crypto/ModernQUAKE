@@ -19,3 +19,15 @@ same room code joins you (max 8 per room). `?room=CODE&name=YOU` in the URL does
 - **Permanent:** deploy this repo to Render / Railway / Fly.io as a Node web service
   (build: `npm install && npm run build`, start: `npm run server`). Vercel can't host WebSockets, so if you want the
   page on Vercel, deploy the server elsewhere and open the Vercel page with `?server=your-server.onrender.com&room=CODE`.
+
+## Play on phones (add to Home Screen)
+Phones get touch controls automatically: left thumb = move stick, right thumb = drag to aim, hold **FIRE** and drag to
+shoot while aiming, **JUMP**, **DUCK** (toggle), **⇄** next weapon, tap a weapon slot to pick it, **❚❚** pause.
+Aim speed slider is on the start screen. Play in landscape.
+
+Open the hosted URL (e.g. your Render link) on the phone, then:
+- **iPhone (Safari):** Share → *Add to Home Screen*.
+- **Android (Chrome):** ⋮ menu → *Add to Home screen* / *Install app*.
+
+Launching from the icon opens it fullscreen like an app. Everyone uses the same room code to play together.
+Test touch controls on desktop with `?touch=1`.
