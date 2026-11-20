@@ -110,7 +110,7 @@ export class Viewmodel {
   current: WeaponId = 'pistol';
   private pending: WeaponId = 'pistol';
   private raise = 1;
-  private kick = 0; private bobT = 0; private swayX = 0; private swayY = 0; private flashT = 0; private spin = 0; private swing = 0;
+  private kick = 0; private kz = 0; private kzv = 0; private breath = 0; private wasAir = false; private land = 0; private tilt = 0; private bobT = 0; private swayX = 0; private swayY = 0; private flashT = 0; private spin = 0; private swing = 0;
   onSwitch?: (id: WeaponId) => void;
   fp: FpArms; private procHands: THREE.Object3D[] = [];
   get armsReady() { return this.fp.ready; }
@@ -200,6 +200,10 @@ export class Viewmodel {
 
     const m = this.models.get(this.current)!;
     this.kick = Math.max(0, this.kick - dt * 9);
+    // spring-damped recoil: snaps back, overshoots a hair, settles
+    this.kzv += (-this.kz * 260 - this.kzv * 22 + this.kick * 160) * dt; this.kz += this.kzv * dt;
+    this.breath += dt;
+    if (this.wasAir && o.grounded) this.land = 1; this.wasAir = !o.grounded; this.land = Math.max(0, this.land - dt * 4);
     this.swing = Math.max(0, this.swing - dt * 5);
     this.flashT -= dt; m.flash.visible = this.flashT > 0;
     const pulse = 1 + 0.3 * Math.sin(performance.now() / 160) + (this.flashT > 0 || o.beam ? 1.0 : 0);
@@ -208,14 +212,16 @@ export class Viewmodel {
 
     const moving = o.grounded ? Math.min(1, o.speed / 10) : 0.15;
     this.bobT += dt * (6 + o.speed * 0.6);
-    const bx = Math.cos(this.bobT * 0.5) * 0.006 * moving, by = Math.abs(Math.sin(this.bobT * 0.5)) * 0.008 * moving;
+    const idle = 1 - moving;
+    const bx = Math.cos(this.bobT * 0.5) * 0.011 * moving + Math.sin(this.breath * 1.3) * 0.0015 * idle,
+          by = Math.abs(Math.sin(this.bobT * 0.5)) * 0.014 * moving + Math.sin(this.breath * 1.7) * 0.0022 * idle - this.land * 0.03;
     this.swayX += (-o.lookDX * 0.0016 - this.swayX) * Math.min(1, dt * 10);
     this.swayY += (o.lookDY * 0.0016 - this.swayY) * Math.min(1, dt * 10);
     const lower = (1 - this.raise) * (1 - this.raise);
     const h = m.holder;
     const sw = Math.sin(this.swing * Math.PI);   // blade slash arc
-    h.position.set(bx + this.swayX * 0.5 - sw * 0.12, by - lower * 0.35 + this.swayY * 0.5 - sw * 0.04, this.kick * 0.07 - sw * 0.12);
-    h.rotation.set(-this.kick * 0.06 + this.swayY - lower * 0.9 + sw * 0.4, this.swayX + sw * 0.7, -this.swayX * 0.6 + Math.sin(this.bobT * 0.5) * 0.004 * moving - sw * 0.9);
+    h.position.set(bx + this.swayX * 0.5 - sw * 0.12, by - lower * 0.35 + this.swayY * 0.5 - sw * 0.04, this.kz * 0.05 - sw * 0.12);
+    h.rotation.set(-this.kz * 0.07 + this.land * 0.05 + this.swayY - lower * 0.9 + sw * 0.4, this.swayX + sw * 0.7, -this.swayX * 0.6 + Math.sin(this.bobT * 0.5) * 0.004 * moving - sw * 0.9);
     if (this.fp.ready) { h.updateMatrixWorld(true); this.fp.update(h, this.current); }
   }
 }

@@ -8,10 +8,13 @@
   html,body{margin:0;height:100%;background:#000;overflow:hidden;font-family:"Rajdhani","Segoe UI",system-ui,sans-serif;color:#dff}
   canvas{display:block}
   #hud{position:fixed;inset:0;pointer-events:none;text-shadow:0 0 8px #000}
-  #cross{position:absolute;left:50%;top:50%;width:18px;height:18px;margin:-9px 0 0 -9px}
-  #cross:before,#cross:after{content:"";position:absolute;background:#7ffff0;box-shadow:0 0 6px #0ff}
-  #cross:before{left:8px;top:0;width:2px;height:18px;clip-path:polygon(0 0,100% 0,100% 35%,0 35%,0 65%,100% 65%,100% 100%,0 100%)}
-  #cross:after{top:8px;left:0;height:2px;width:18px;clip-path:polygon(0 0,35% 0,35% 100%,0 100%,65% 0,100% 0,100% 100%,65% 100%)}
+  #cross{position:absolute;left:50%;top:50%;width:0;height:0}
+  #cross i{position:absolute;background:#e9ffff;opacity:.92;border-radius:1px;box-shadow:0 0 0 1px rgba(0,0,0,.55)}
+  #cross i:nth-child(1){left:-1px;top:-14px;width:2px;height:7px}
+  #cross i:nth-child(2){left:-1px;top:7px;width:2px;height:7px}
+  #cross i:nth-child(3){top:-1px;left:-14px;height:2px;width:7px}
+  #cross i:nth-child(4){top:-1px;left:7px;height:2px;width:7px}
+  #cross b{position:absolute;left:-1.5px;top:-1.5px;width:3px;height:3px;border-radius:50%;background:#7ffff0;box-shadow:0 0 0 1px rgba(0,0,0,.55),0 0 6px #0ff}
   .stat{position:absolute;bottom:22px;font-weight:700;font-size:64px;letter-spacing:1px;line-height:1}
   .stat small{display:block;font-size:13px;letter-spacing:3px;opacity:.7;font-weight:600}
   #hp{left:40px;color:#ffd24a}
@@ -37,7 +40,7 @@
 </head>
 <body>
 <div id="hud">
-  <div id="cross"></div>
+  <div id="cross"><i></i><i></i><i></i><i></i><b></b></div>
   <div id="medal">FREE-FOR-ALL  ·  PRACTICE</div>
   <div id="msg"></div>
   <div id="frags">FRAGS 0</div>

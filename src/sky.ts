@@ -198,7 +198,7 @@ export class Sky {
 // Crisp round point stars, denser inside the Milky Way band. Follows the camera.
 export class Stars {
   mesh: THREE.Points;
-  constructor(bandN: THREE.Vector3, count = 5200) {
+  constructor(bandN: THREE.Vector3, count = 1700) {
     const pos = new Float32Array(count * 3), col = new Float32Array(count * 3), size = new Float32Array(count);
     let seed = 1337; const r = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
     let i = 0;
@@ -206,12 +206,12 @@ export class Stars {
       const u = r() * 2 - 1, a = r() * Math.PI * 2, s = Math.sqrt(1 - u * u);
       const dx = s * Math.cos(a), dy = u, dz = s * Math.sin(a);
       const lat = dx * bandN.x + dy * bandN.y + dz * bandN.z;
-      if (r() > 0.25 + 0.75 * Math.exp(-lat * lat * 10)) continue;       // bias towards the band
+      if (r() > 0.08 + 0.92 * Math.exp(-lat * lat * 10)) continue;       // bias towards the band
       pos.set([dx * 450, dy * 450, dz * 450], i * 3);
       const b = Math.pow(r(), 3.4), warm = r();
       const c = new THREE.Color().setRGB(0.72 + warm * 0.28, 0.82 + (1 - warm) * 0.14, 1.0 - warm * 0.4);
       col.set([c.r * (0.3 + b), c.g * (0.3 + b), c.b * (0.3 + b)], i * 3);
-      size[i] = 1.1 + b * 3.4; i++;
+      size[i] = 0.9 + b * 2.4; i++;
     }
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('aCol', new THREE.BufferAttribute(col, 3)); g.setAttribute('aSize', new THREE.BufferAttribute(size, 1));

@@ -69,13 +69,13 @@ void main(){
 const moteVert = /* glsl */ `
 attribute vec3 aSeed; uniform float uTime; uniform float uH; varying float vA;
 void main(){
-  float ang = aSeed.x * 6.2831, rad = aSeed.y * 1.15;
+  float ang = aSeed.x * 6.2831, rad = (0.25 + aSeed.y * 0.75) * 1.1;
   float sp = 0.7 + aSeed.z * 1.1;
   float y = mod(aSeed.z * 13.7 + uTime * sp, uH);
   float k = y / uH;
-  vec3 p = vec3(cos(ang + uTime * 0.4) * rad, 0.25 + y, sin(ang + uTime * 0.4) * rad);
-  vA = (1.0 - k) * smoothstep(0.0, 0.06, k);
-  gl_PointSize = 5.0 * (1.0 - k * 0.5);
+  vec3 p = vec3(cos(ang + uTime * 0.4 + k * 3.0) * rad * (1.0 - k * 0.5), 0.25 + y, sin(ang + uTime * 0.4 + k * 3.0) * rad * (1.0 - k * 0.5));
+  vA = (1.0 - k) * (1.0 - k) * smoothstep(0.0, 0.08, k) * (0.55 + 0.45 * sin(uTime * 3.0 + aSeed.x * 40.0));
+  gl_PointSize = (3.0 + 4.0 * aSeed.y) * (1.0 - k * 0.6);
   gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
 }`;
 const moteFrag = /* glsl */ `
@@ -118,7 +118,7 @@ export function buildPad(p: Pad, index: number, opts: { beams: boolean }): THREE
       uniforms: { uColor: { value: color }, uTime: padTime },
     }));
     col.renderOrder = 3; g.add(col);
-    const motes = new THREE.Points(moteGeometry(26, index), new THREE.ShaderMaterial({
+    const motes = new THREE.Points(moteGeometry(18, index), new THREE.ShaderMaterial({
       vertexShader: moteVert, fragmentShader: moteFrag, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
       uniforms: { uColor: { value: color.clone().lerp(new THREE.Color(1, 1, 1), 0.35) }, uTime: padTime, uH: { value: H } },
     }));

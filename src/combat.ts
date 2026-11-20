@@ -70,10 +70,10 @@ class Particles {
 
 // ───────────── tracers / beams (additive stretched cylinders) ─────────────
 const unitCyl = new THREE.CylinderGeometry(1, 1, 1, 8, 1, true).rotateX(Math.PI / 2);
-interface Tr { m: THREE.Mesh; life: number; max: number; r: number; shrink: boolean }
+interface Tr { m: THREE.Mesh; life: number; max: number; r: number; shrink: boolean; fly?: { a: THREE.Vector3; dir: THREE.Vector3; total: number; speed: number; len: number; t: number } }
 class Tracers {
   pool: Tr[] = []; free: Tr[] = [];
-  constructor(scene: THREE.Scene, n = 80) {
+  constructor(scene: THREE.Scene, n = 120) {
     for (let i = 0; i < n; i++) {
       const m = new THREE.Mesh(unitCyl, new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false, fog: false, blending: THREE.AdditiveBlending }));
       m.visible = false; m.frustumCulled = false; scene.add(m);
@@ -86,9 +86,29 @@ class Tracers {
     t.m.position.copy(a).add(b).multiplyScalar(0.5); t.m.lookAt(b); t.m.scale.set(r, r, len);
     (t.m.material as THREE.MeshBasicMaterial).color.set(color); t.m.visible = true; t.life = t.max = life; t.r = r; t.shrink = shrink;
   }
+  /** a bright streak that flies from a to b at `speed` m/s, `len` metres long (so bullets read as moving) */
+  fly(a: THREE.Vector3, b: THREE.Vector3, r: number, color: number, speed = 260, len = 5) {
+    const t = this.free.pop(); if (!t) return;
+    const total = a.distanceTo(b); if (total < 0.3) { this.free.push(t); return; }
+    t.m.visible = true; (t.m.material as THREE.MeshBasicMaterial).color.set(color); (t.m.material as THREE.MeshBasicMaterial).opacity = 1;
+    t.life = t.max = total / speed + 0.04; t.r = r; t.shrink = false;
+    t.fly = { a: a.clone(), dir: b.clone().sub(a).normalize(), total, speed, len, t: 0 };
+    this.place(t);
+  }
+  private place(t: Tr) {
+    const f = t.fly!; const head = Math.min(f.total, f.t * f.speed), tail = Math.max(0, head - f.len);
+    const A = f.a.clone().addScaledVector(f.dir, tail), B = f.a.clone().addScaledVector(f.dir, head);
+    const len = Math.max(0.05, B.distanceTo(A)); t.m.position.copy(A).add(B).multiplyScalar(0.5); t.m.lookAt(B); t.m.scale.set(t.r, t.r, len);
+  }
   update(dt: number) {
     for (const t of this.pool) {
-      if (t.life <= 0) continue; t.life -= dt;
+      if (t.life <= 0) continue;
+      if (t.fly) {
+        t.fly.t += dt; t.life -= dt;
+        if (t.fly.t * t.fly.speed >= t.fly.total + t.fly.len || t.life <= -0.1) { t.m.visible = false; t.life = 0; t.fly = undefined; this.free.push(t); continue; }
+        this.place(t); continue;
+      }
+      t.life -= dt;
       if (t.life <= 0) { t.m.visible = false; this.free.push(t); continue; }
       const k = t.life / t.max;
       (t.m.material as THREE.MeshBasicMaterial).opacity = k;
@@ -154,7 +174,9 @@ export class Combat {
       const r = this.trace(eye, d, st.range!, st.damage, id, st.kind === 'rail');
       if (st.kind === 'rail') { this.railBeam(muzzle, r.point); this.sparks(r.point, r.n ?? new THREE.Vector3(0, 1, 0), col, 14); this.shake = Math.max(this.shake, 0.5); }
       else {
-        this.tracers.add(muzzle, r.point, id === 'scatter' ? 0.028 : 0.04, id === 'scatter' ? 0xffb050 : 0xfff0a0, id === 'scatter' ? 0.09 : 0.12, false);
+        const sc = id === 'scatter';
+        this.tracers.fly(muzzle, r.point, sc ? 0.035 : 0.05, sc ? 0xffb050 : 0xfff0a0, sc ? 200 : 300, sc ? 3 : 6);
+        this.tracers.fly(muzzle, r.point, sc ? 0.08 : 0.11, sc ? 0xff7a20 : 0xffb030, sc ? 200 : 300, sc ? 3 : 6);
         if (r.hitWorld) this.sparks(r.point, r.n!, col, id === 'scatter' ? 3 : 6);
       }
     }
