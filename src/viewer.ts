@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { Sky } from './sky';
 import { WEAPON_ORDER, WEAPON_DEFS, buildWeapon } from './weapons';
+import { Viewmodel } from './viewmodel';
 
 // Standalone model viewer: /viewer.html?m=weapons  (grid of every weapon on turntables)
 const params = new URLSearchParams(location.search);
@@ -41,12 +42,37 @@ if (mode === 'weapons') {
   label.textContent = WEAPON_ORDER.map(i => WEAPON_DEFS[i].name).join('   ·   ');
 }
 
+// m=vm: every weapon exactly as it appears in first person (hands + gun), 4x2 grid
+const vms: Viewmodel[] = [];
+if (mode === 'vm') {
+  WEAPON_ORDER.forEach(id => { const v = new Viewmodel(); v.show(id); vms.push(v); });
+  label.textContent = 'FIRST-PERSON AUDIT  ·  ' + WEAPON_ORDER.map(i => WEAPON_DEFS[i].name).join(' · ');
+}
+const only = params.get('only');   // ?only=rail renders one weapon fullscreen
+function renderVM() {
+  const W = innerWidth, H = innerHeight;
+  renderer.setScissorTest(true); renderer.setClearColor(0x1b2029, 1);
+  const list = only ? [vms[WEAPON_ORDER.indexOf(only as any)]] : vms;
+  const cols = only ? 1 : 4, rows = only ? 1 : 2, cw = W / cols, ch = H / rows;
+  list.forEach((v, i) => {
+    const x = (i % cols) * cw, y = H - (Math.floor(i / cols) + 1) * ch;
+    renderer.setViewport(x, y, cw, ch); renderer.setScissor(x, y, cw, ch); renderer.clear(); v.resize(cw / ch);
+    if (params.get('fov')) { v.camera.fov = Number(params.get('fov')); v.camera.updateProjectionMatrix(); v.camera.lookAt(0.12, -0.22, -0.6); }
+    if (params.get('close')) {     // 3/4 audit camera close to the hands + gun
+      const a = Number(params.get('close')) || 0.5;
+      v.camera.fov = 38; v.camera.updateProjectionMatrix();
+      v.camera.position.set(0.2 + Math.sin(a) * 0.62, -0.12 + 0.12, -0.55 + Math.cos(a) * 0.62 - 0.06); v.camera.lookAt(0.2, -0.24, -0.6);
+    }
+    renderer.render(v.scene, v.camera);
+  });
+}
+
 const fixedYaw = params.get('yaw'); // freeze for screenshots
 let t0 = performance.now();
 function frame(now: number) {
   const t = (now - t0) / 1000;
   turn.forEach(p => { p.rotation.y = fixedYaw ? Number(fixedYaw) : -0.6 + t * 0.5; });
-  renderer.render(scene, camera);
+  if (mode === 'vm') renderVM(); else renderer.render(scene, camera);
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);

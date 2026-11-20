@@ -33,6 +33,9 @@ export class Player {
   lastPad = '';
   lastPadTime = 0;
   spawnIdx = 0;
+  health = 100; armor = 0;
+  onVoid?: () => void;
+  hurtT = 0;
 
   constructor(private boxes: Box[]) { this.respawn(); }
 
@@ -46,7 +49,16 @@ export class Player {
     this.yaw = s.yaw; this.pitch = 0;
     this.vx = this.vy = this.vz = 0;
     this.grounded = false; this.crouched = false;
+    this.health = 100; this.armor = 0;
   }
+
+  /** Q3 rules: armour soaks two thirds of incoming damage while it lasts. Returns true if this killed the player. */
+  takeDamage(amount: number): boolean {
+    const soak = Math.min(this.armor, amount * (2 / 3));
+    this.armor -= soak; this.health -= amount - soak; this.hurtT = 0.25;
+    return this.health <= 0;
+  }
+  knock(x: number, y: number, z: number) { this.vx += x; this.vy += y; this.vz += z; if (y > 0.5) this.grounded = false; }
 
   private overlaps(px: number, py: number, pz: number, h: number): Box | null {
     const hw = PM.hw;
@@ -110,7 +122,7 @@ export class Player {
 
     this.move(dt);
     this.checkPads(dt);
-    if (this.y < PM.voidY) this.respawn();
+    if (this.y < PM.voidY) { if (this.onVoid) this.onVoid(); else this.respawn(); }
   }
 
   private move(dt: number) {

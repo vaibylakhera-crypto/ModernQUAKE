@@ -10,7 +10,10 @@ import { getQuality } from './quality';
 import { Player, PM, Input } from './player';
 import { boxes } from './level';
 import { Viewmodel } from './viewmodel';
-import { WEAPON_ORDER, WEAPON_DEFS, WeaponId } from './weapons';
+import { Loadout } from './loadout';
+import { Combat, Target } from './combat';
+import { Pickups } from './pickups';
+import { WEAPON_ORDER, WEAPON_DEFS } from './weapons';
 
 const Q = getQuality();
 kitOptions.cheap = !Q.pbr;
@@ -103,35 +106,94 @@ addEventListener('keydown', e => {
   if (e.repeat) return;           // holding space never auto-hops
   keys.add(e.code);
   if (e.code === 'Space') jumpQueued = true;
-  if (e.code === 'KeyR') { player.respawn(); yaw = player.yaw; pitch = 0; }
+  if (e.code === 'KeyR') { die('DIED'); }
 });
 addEventListener('keyup', e => keys.delete(e.code));
 
+// ---- weapons / loadout / combat / pickups ----
 const vm = new Viewmodel();
+const loadout = new Loadout();
 const wbar = document.getElementById('wbar')!;
 WEAPON_ORDER.forEach((id, i) => {
   const d = document.createElement('div'); d.className = 'wslot'; d.id = 'w-' + id; d.style.setProperty('--c', '#' + WEAPON_DEFS[id].color.toString(16).padStart(6, '0'));
-  d.innerHTML = `<b>${i + 1}</b>${WEAPON_DEFS[id].name}`; wbar.appendChild(d);
+  d.innerHTML = `<b>${i + 1}</b>${WEAPON_DEFS[id].name}<i></i>`; wbar.appendChild(d);
 });
-const markWeapon = (id: WeaponId) => { for (const w of WEAPON_ORDER) document.getElementById('w-' + w)!.classList.toggle('on', w === id); };
-markWeapon(vm.current); vm.onSwitch = markWeapon;
-let firing = false, lookDX = 0, lookDY = 0;
-addEventListener('mousedown', e => { if (locked() && e.button === 0) firing = true; });
-addEventListener('mouseup', e => { if (e.button === 0) firing = false; });
-addEventListener('wheel', e => { if (locked()) vm.cycle(e.deltaY > 0 ? 1 : -1); });
-addEventListener('keydown', e => { const n = Number(e.code.replace('Digit', '')); if (n >= 1 && n <= WEAPON_ORDER.length) vm.select(WEAPON_ORDER[n - 1]); });
+let lastBar = '';
+function refreshBar() {
+  const key = WEAPON_ORDER.map(w => `${loadout.has(w) ? 1 : 0}${loadout.ammo[w]}${w === vm.target ? 'x' : ''}`).join('|');
+  if (key === lastBar) return; lastBar = key;
+  for (const w of WEAPON_ORDER) {
+    const el = document.getElementById('w-' + w)!; const own = loadout.has(w);
+    el.classList.toggle('own', own); el.classList.toggle('on', w === vm.target); el.classList.toggle('dry', own && !loadout.canFire(w));
+    el.querySelector('i')!.textContent = own ? (loadout.ammo[w] === Infinity ? '∞' : String(loadout.ammo[w])) : '';
+  }
+}
+let mouseDown = false, lookDX = 0, lookDY = 0;
+addEventListener('mousedown', e => { if (locked() && e.button === 0) mouseDown = true; });
+addEventListener('mouseup', e => { if (e.button === 0) mouseDown = false; });
+addEventListener('wheel', e => { if (locked()) vm.select(loadout.step(vm.target, e.deltaY > 0 ? 1 : -1)); });
+addEventListener('keydown', e => {
+  const n = Number(e.code.replace('Digit', ''));
+  if (n >= 1 && n <= WEAPON_ORDER.length && loadout.has(WEAPON_ORDER[n - 1])) vm.select(WEAPON_ORDER[n - 1]);
+});
 
 const player = new Player(boxes);
 yaw = player.yaw;
-
-// ---- HUD ----
 const speedEl = document.getElementById('speed')!;
 const msgEl = document.getElementById('msg')!;
+const hpEl = document.getElementById('hp')!, arEl = document.getElementById('ar')!;
+let sayTimer: number | undefined;
+function say(text: string) { msgEl.textContent = text; msgEl.style.opacity = '1'; clearTimeout(sayTimer); sayTimer = window.setTimeout(() => (msgEl.style.opacity = '0'), 1100); }
+
+const targets: Target[] = [];            // bots / dummies register here
+const flashEl = document.createElement('div'); flashEl.style.cssText = 'position:fixed;inset:0;pointer-events:none;background:#ff2a1a;opacity:0;z-index:3'; document.body.appendChild(flashEl);
+const combat = new Combat(scene, {
+  targets: () => targets,
+  explode(pos, radius, dmg, knock, fromPlayer) {
+    // splash on the local player (rocket jumps!)
+    const c = new THREE.Vector3(player.x, player.y + 0.9, player.z); const d = c.distanceTo(pos);
+    if (d >= radius) return;
+    const f = 1 - d / radius; const dir = c.sub(pos).normalize(); dir.y += 0.3; dir.normalize();
+    player.knock(dir.x * knock * f, dir.y * knock * f * 1.15, dir.z * knock * f);
+    const self = fromPlayer ? 0.4 : 1;
+    if (player.takeDamage(dmg * f * self)) die('EXPLODED');
+  },
+});
+const pickupSys = new Pickups(scene);
+function die(why: string) {
+  say(why === 'EXPLODED' ? 'YOU BLEW UP' : why === 'FELL' ? 'YOU FELL' : 'YOU DIED'); player.respawn(); yaw = player.yaw; pitch = 0;
+  loadout.reset(); vm.show('pistol'); lastBar = '';
+}
+player.onVoid = () => die('FELL');
+
+// ---- HUD ----
 let shownPadTime = 0;
 function hud() {
   speedEl.firstChild!.textContent = String(Math.round(player.speedXZ * 32));
   speedEl.style.color = player.speedXZ > 15 ? '#ff9a3c' : player.speedXZ > 11 ? '#ffe14a' : '#7ffff0';
-  if (player.lastPadTime !== shownPadTime) { shownPadTime = player.lastPadTime; msgEl.textContent = player.lastPad; msgEl.style.opacity = '1'; setTimeout(() => (msgEl.style.opacity = '0'), 900); }
+  hpEl.firstChild!.textContent = String(Math.max(0, Math.ceil(player.health))); hpEl.style.color = player.health > 50 ? '#ffd24a' : player.health > 25 ? '#ff9a3c' : '#ff4040';
+  arEl.firstChild!.textContent = String(Math.ceil(player.armor));
+  flashEl.style.opacity = String(Math.max(0, player.hurtT) * 1.6);
+  if (player.lastPadTime !== shownPadTime) { shownPadTime = player.lastPadTime; say(player.lastPad); }
+  refreshBar();
+}
+
+const _dir = new THREE.Vector3(), _eye = new THREE.Vector3();
+function tryFire(dt: number) {
+  loadout.cooldown -= dt;
+  const id = vm.current; const st = WEAPON_DEFS[id].stats;
+  if (!(mouseDown && locked()) || loadout.cooldown > 0 || vm.switching) return;
+  if (!loadout.canFire(id)) { loadout.cooldown = 0.3; if (id !== 'blade' && id !== 'pistol') vm.select(loadout.best()); return; }
+  loadout.cooldown = st.interval; loadout.consume(id);
+  doFire(id);
+}
+function doFire(id: Parameters<typeof combat.fire>[0]) {
+  _dir.set(-Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), -Math.cos(yaw) * Math.cos(pitch));
+  _eye.set(player.x, player.y + player.eye, player.z);
+  camera.updateMatrixWorld(true);
+  const muzzle = camera.localToWorld(vm.muzzleCamSpace());
+  combat.fire(id, _eye, _dir, muzzle);
+  vm.fire(id);
 }
 
 // ---- loop (fixed 120 Hz sim) ----
@@ -150,15 +212,24 @@ function frame(now: number) {
     player.step(input, DT);
     acc -= DT;
   }
-  camera.position.set(player.x, player.y + player.eye, player.z);
-  camera.rotation.set(pitch, yaw, 0);
+  const sh = combat.shake;
+  camera.position.set(player.x + (Math.random() - .5) * sh * 0.06, player.y + player.eye + (Math.random() - .5) * sh * 0.06, player.z);
+  camera.rotation.set(pitch + (Math.random() - .5) * sh * 0.02, yaw, 0);
+  player.hurtT = Math.max(0, player.hurtT - frameMs / 1000);
+  tryFire(Math.min(0.05, frameMs / 1000));
+  for (const got of pickupSys.update(now / 1000, player, d => d.kind === 'weapon' ? loadout.wouldAccept(d.id) : d.kind === 'health' ? player.health < 100 : player.armor < 100)) {
+    if (got.kind === 'weapon') { const r = loadout.give(got.id); say(r === 'new' ? `${WEAPON_DEFS[got.id].name} ACQUIRED` : `+${WEAPON_DEFS[got.id].stats.ammoPickup} ${WEAPON_DEFS[got.id].name} AMMO`); if (r === 'new') vm.select(got.id); }
+    else if (got.kind === 'health') { player.health = Math.min(100, player.health + got.amount); say(`+${got.amount} HEALTH`); }
+    else { player.armor = Math.min(100, player.armor + got.amount); say(`+${got.amount} ARMOR`); }
+  }
+  if (!(window as any).__freeze) combat.update(Math.min(0.05, frameMs / 1000));
   stars.update(camera, renderer.getPixelRatio());
   if (!Q.liveSky) { const a = now / 1000 * 0.004; scene.backgroundRotation.y = a; stars.mesh.rotation.y = a; }
   if (Q.liveSky) sky.update(now / 1000, camera);
   world.update(now / 1000);
   hud();
   if (composer) composer.render(); else renderer.render(scene, camera);
-  vm.update(Math.min(0.05, frameMs / 1000), { speed: player.speedXZ, grounded: player.grounded, lookDX, lookDY, firing: firing && locked() }); lookDX = lookDY = 0;
+  vm.update(Math.min(0.05, frameMs / 1000), { speed: player.speedXZ, grounded: player.grounded, lookDX, lookDY, spinning: mouseDown && locked() && vm.current === 'nailer', beam: mouseDown && locked() && vm.current === 'arc' }); lookDX = lookDY = 0;
   { const ac = renderer.autoClear; renderer.autoClear = false; renderer.clearDepth(); renderer.render(vm.scene, vm.camera); renderer.autoClear = ac; }
   adapt(frameMs);
   requestAnimationFrame(frame);
@@ -166,4 +237,4 @@ function frame(now: number) {
 requestAnimationFrame(frame);
 
 // dev/test hook
-(window as any).__game = { player, camera, vm, renderer, world, Q, get scale() { return renderScale; }, setLook: (y: number, p: number) => { yaw = y; pitch = p; }, PM };
+(window as any).__game = { doFire, player, camera, vm, loadout, combat, pickupSys, targets, say, die, renderer, world, Q, get scale() { return renderScale; }, setLook: (y: number, p: number) => { yaw = y; pitch = p; }, PM };

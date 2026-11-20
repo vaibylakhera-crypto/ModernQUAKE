@@ -126,3 +126,12 @@ export function buildPad(p: Pad, index: number, opts: { beams: boolean }): THREE
   }
   return g;
 }
+
+/** Soft additive light column (reused by pickups). */
+export function columnMesh(color: THREE.Color, H: number, r = 1.0): THREE.Mesh {
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r * 1.08, H, 24, 1, true).translate(0, H / 2, 0), new THREE.ShaderMaterial({
+    vertexShader: columnVert, fragmentShader: columnFrag, transparent: true, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending,
+    uniforms: { uColor: { value: color }, uTime: padTime },
+  }));
+  m.renderOrder = 3; return m;
+}

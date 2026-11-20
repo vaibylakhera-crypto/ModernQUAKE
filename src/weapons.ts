@@ -4,7 +4,7 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 // Original sci-fi weapon models, modelled from primitives. Every gun points down -Z, origin at the grip.
 // Each returns { group, muzzle, glow[] } - `glow` materials can be pulsed when charging / firing.
 
-export type WeaponId = 'scatter' | 'nailer' | 'rocket' | 'plasma' | 'rail';
+export type WeaponId = 'blade' | 'pistol' | 'scatter' | 'nailer' | 'rocket' | 'arc' | 'rail' | 'plasma';
 
 const phong = (color: number, shininess = 60, specular = 0x667080) => new THREE.MeshPhongMaterial({ color, specular, shininess });
 const M = {
@@ -27,7 +27,7 @@ function box(w: number, h: number, d: number, mat: THREE.Material, r = 0.008): T
 function at<T extends THREE.Object3D>(o: T, x: number, y: number, z: number): T { o.position.set(x, y, z); return o; }
 
 function grip(g: THREE.Group, z = 0.06) {
-  const gr = at(box(0.045, 0.16, 0.06, M.rubber, 0.015), 0, -0.1, z); gr.rotation.x = -0.28; g.add(gr);
+  const gr = at(box(0.064, 0.16, 0.078, M.rubber, 0.02), 0, -0.1, z); gr.rotation.x = -0.28; g.add(gr);
   g.add(at(box(0.012, 0.05, 0.1, M.gun, 0.004), 0, -0.04, z - 0.07));                    // trigger guard front
   g.add(at(box(0.012, 0.012, 0.1, M.gun, 0.004), 0, -0.075, z - 0.075));                 // trigger guard bottom
   g.add(at(box(0.008, 0.028, 0.012, M.steel, 0.003), 0, -0.04, z - 0.04));               // trigger
@@ -52,7 +52,6 @@ function scatter() {
   for (let i = 0; i < 5; i++) g.add(at(box(0.104, 0.078, 0.008, M.black, 0.002), 0, -0.065, -0.5 + i * 0.04));
   g.add(at(box(0.022, 0.03, 0.05, M.gunLight, 0.006), 0.075, 0.03, 0.04));               // charging handle
   grip(g, 0.1);
-  g.add(at(box(0.1, 0.1, 0.26, M.gun, 0.03), 0, -0.04, 0.24));                            // stock block
   const muzzle = at(new THREE.Object3D(), 0, 0.02, -0.9); g.add(muzzle);
   return { group: g, muzzle, glow };
 }
@@ -84,6 +83,9 @@ function rocket() {
   const orange = glowMat(0xff8a1a);
   g.add(at(cyl(0.078, 0.078, 0.8, M.gun), 0, 0.03, -0.42));                               // main tube
   g.add(at(cyl(0.078, 0.118, 0.2, M.gunLight), 0, 0.03, 0.08));                           // rear flare
+  g.add(at(cyl(0.118, 0.118, 0.03, M.steel), 0, 0.03, 0.18));                              // exhaust rim
+  g.add(at(cyl(0.097, 0.097, 0.012, M.black), 0, 0.03, 0.197));                            // dark back-blast opening
+  g.add(at(cyl(0.05, 0.05, 0.004, glowMat(0xff5a1a, 1.2)), 0, 0.03, 0.2));                 // ember glow inside
   g.add(at(cyl(0.104, 0.104, 0.09, M.steel), 0, 0.03, -0.84));                            // muzzle ring
   g.add(at(cyl(0.108, 0.108, 0.02, M.hazard), 0, 0.03, -0.9));
   g.add(at(cyl(0.07, 0.07, 0.006, M.black), 0, 0.03, -0.912));                            // dark bore
@@ -118,7 +120,6 @@ function plasma() {
   for (const sx of [-0.072, 0.072]) for (let i = 0; i < 4; i++) g.add(at(box(0.006, 0.07, 0.022, blue, 0.002), sx, 0.0, -0.02 - i * 0.05));   // side vents
   g.add(at(box(0.145, 0.012, 0.34, blue, 0.002), 0, -0.09, -0.12));
   grip(g, 0.1);
-  g.add(at(box(0.1, 0.1, 0.1, M.gun, 0.03), 0, -0.01, 0.2));
   const muzzle = at(new THREE.Object3D(), 0, 0.01, -0.52); g.add(muzzle);
   return { group: g, muzzle, glow };
 }
@@ -145,19 +146,81 @@ function rail() {
   g.add(at(cyl(0.025, 0.025, 0.16, M.black, 16), 0, 0.2, -0.5));                          // scope tube
   g.add(at(cyl(0.022, 0.022, 0.004, cy, 16), 0, 0.2, -0.582));                            // scope lens
   grip(g, 0.1);
-  g.add(at(box(0.09, 0.12, 0.3, M.gun, 0.03), 0, 0.0, 0.28));                             // stock
   const muzzle = at(new THREE.Object3D(), 0, 0.03, -1.24); g.add(muzzle);
+  return { group: g, muzzle, glow };
+}
+
+// ───────────────────────── Blade "Edge": vibro-blade, always available
+function blade() {
+  const g = new THREE.Group(), glow: THREE.MeshBasicMaterial[] = [];
+  const core = glowMat(0xb8f6ff, 1.6); glow.push(core);
+  g.add(at(cyl(0.022, 0.02, 0.2, M.rubber, 16), 0, 0, 0.02));
+  for (let i = 0; i < 4; i++) g.add(at(cyl(0.0235, 0.0235, 0.012, M.gunLight, 16), 0, 0, 0.07 - i * 0.045));
+  g.add(at(new THREE.Mesh(new THREE.SphereGeometry(0.03, 14, 12), M.steel), 0, 0, 0.13));
+  g.add(at(box(0.11, 0.024, 0.035, M.steel, 0.008), 0, 0, -0.085));                         // guard
+  g.add(at(box(0.02, 0.07, 0.04, M.gun, 0.006), 0.05, 0, -0.095)); g.add(at(box(0.02, 0.07, 0.04, M.gun, 0.006), -0.05, 0, -0.095));
+  g.add(at(box(0.02, 0.05, 0.1, M.gunLight, 0.006), 0, 0, -0.12));                          // emitter housing
+  const blade = at(box(0.012, 0.06, 0.62, core, 0.004), 0, 0, -0.45); g.add(blade);
+  const tip = new THREE.Mesh(new THREE.ConeGeometry(0.03, 0.12, 4).rotateX(-Math.PI / 2).rotateZ(Math.PI / 2), core); tip.position.set(0, 0, -0.82); tip.scale.set(0.4, 1, 1); g.add(tip);
+  const halo = new THREE.MeshBasicMaterial({ color: 0x36d6ff, transparent: true, opacity: 0.28, blending: THREE.AdditiveBlending, depthWrite: false });
+  g.add(at(box(0.05, 0.11, 0.64, halo, 0.02), 0, 0, -0.45));
+  const muzzle = at(new THREE.Object3D(), 0, 0, -0.8); g.add(muzzle);
+  return { group: g, muzzle, glow };
+}
+
+// ───────────────────────── Pistol "Sidearm": compact energy pistol, starting weapon
+function pistol() {
+  const g = new THREE.Group(), glow: THREE.MeshBasicMaterial[] = [];
+  const g1 = glowMat(0xffe14a, 1.8); glow.push(g1);
+  g.add(at(box(0.05, 0.06, 0.26, M.gun, 0.014), 0, 0.02, -0.1));                            // slide
+  g.add(at(box(0.04, 0.025, 0.2, M.gunLight, 0.008), 0, 0.058, -0.1));                      // top plate
+  g.add(at(cyl(0.014, 0.014, 0.07, M.steel, 14), 0, 0.02, -0.26));                          // barrel
+  g.add(at(cyl(0.02, 0.02, 0.016, M.black, 14), 0, 0.02, -0.298));
+  g.add(at(box(0.052, 0.012, 0.12, g1, 0.002), 0, 0.02, -0.12));                            // energy strip
+  g.add(at(box(0.052, 0.05, 0.1, M.gunLight, 0.01), 0, -0.02, 0.0));                        // frame
+  g.add(at(box(0.012, 0.03, 0.03, M.steel, 0.004), 0, 0.075, -0.2));                        // front sight
+  grip(g, 0.035);
+  const muzzle = at(new THREE.Object3D(), 0, 0.02, -0.3); g.add(muzzle);
+  return { group: g, muzzle, glow };
+}
+
+// ───────────────────────── Arc gun "Stormcaller": twin prongs + electrode, power cell
+function arc() {
+  const g = new THREE.Group(), glow: THREE.MeshBasicMaterial[] = [];
+  const vio = glowMat(0x8f6bff, 2.2); glow.push(vio);
+  g.add(at(box(0.12, 0.15, 0.34, M.gun, 0.025), 0, 0, -0.05));
+  g.add(at(box(0.09, 0.05, 0.26, M.gunLight, 0.012), 0, 0.1, -0.05));
+  const cell = at(cyl(0.056, 0.056, 0.22, M.gunLight, 24), 0, 0.02, 0.22); g.add(cell);
+  for (let i = 0; i < 3; i++) g.add(at(cyl(0.058, 0.058, 0.02, vio, 24), 0, 0.02, 0.15 + i * 0.07));
+  for (const sx of [-1, 1]) {
+    const p = box(0.02, 0.034, 0.36, M.steel, 0.008); p.position.set(sx * 0.05, 0.03, -0.37); p.rotation.y = sx * 0.07; g.add(p);   // prongs angle inward
+    g.add(at(new THREE.Mesh(new THREE.SphereGeometry(0.02, 12, 10), vio), sx * 0.034, 0.03, -0.545));
+  }
+  g.add(at(cyl(0.01, 0.01, 0.4, vio, 10), 0, 0.03, -0.36));                                  // central electrode
+  for (let i = 0; i < 4; i++) g.add(at(cyl(0.045, 0.045, 0.014, M.gunLight, 18), 0, 0.03, -0.26 - i * 0.07));
+  g.add(at(box(0.125, 0.012, 0.28, vio, 0.002), 0, -0.07, -0.05));
+  grip(g, 0.08);
+  const muzzle = at(new THREE.Object3D(), 0, 0.03, -0.56); g.add(muzzle);
   return { group: g, muzzle, glow };
 }
 
 export interface WeaponModel { group: THREE.Group; muzzle: THREE.Object3D; glow: THREE.MeshBasicMaterial[]; spin?: THREE.Object3D }
 
-export const WEAPON_DEFS: Record<WeaponId, { name: string; build: () => WeaponModel; color: number }> = {
-  scatter: { name: 'WARDEN',     build: scatter, color: 0xff7a1a },
-  nailer:  { name: 'RIVET',      build: nailer,  color: 0xffc02d },
-  rocket:  { name: 'HAMMERFALL', build: rocket,  color: 0xff3a2a },
-  plasma:  { name: 'PULSE',      build: plasma,  color: 0x35d0ff },
-  rail:    { name: 'LONGSHOT',   build: rail,    color: 0x4af0ff },
+export interface WeaponStats {
+  slot: number; interval: number; auto: boolean; kind: 'melee' | 'hitscan' | 'projectile' | 'beam' | 'rail';
+  damage: number; ammoStart: number; ammoMax: number; ammoPickup: number;   // ammo -1 = infinite
+  speed?: number; pellets?: number; spread?: number; range?: number; splash?: number; knock?: number; ammoPerShot?: number;
+}
+
+export const WEAPON_DEFS: Record<WeaponId, { name: string; build: () => WeaponModel; color: number; stats: WeaponStats }> = {
+  blade:   { name: 'EDGE',       build: blade,   color: 0x5ee8ff, stats: { slot: 1, interval: 0.38, auto: false, kind: 'melee', damage: 50, ammoStart: -1, ammoMax: -1, ammoPickup: 0, range: 2.1 } },
+  pistol:  { name: 'SIDEARM',    build: pistol,  color: 0xffe14a, stats: { slot: 2, interval: 0.26, auto: false, kind: 'hitscan', damage: 15, ammoStart: -1, ammoMax: -1, ammoPickup: 0, spread: 0.004, range: 200 } },
+  scatter: { name: 'WARDEN',     build: scatter, color: 0xff7a1a, stats: { slot: 3, interval: 0.9, auto: false, kind: 'hitscan', damage: 8, pellets: 12, spread: 0.055, range: 60, ammoStart: 12, ammoMax: 30, ammoPickup: 10 } },
+  nailer:  { name: 'RIVET',      build: nailer,  color: 0xffc02d, stats: { slot: 4, interval: 0.085, auto: true, kind: 'projectile', damage: 9, speed: 55, spread: 0.012, ammoStart: 60, ammoMax: 200, ammoPickup: 50 } },
+  rocket:  { name: 'HAMMERFALL', build: rocket,  color: 0xff3a2a, stats: { slot: 5, interval: 0.8, auto: false, kind: 'projectile', damage: 100, speed: 28, splash: 4.2, knock: 17, ammoStart: 5, ammoMax: 25, ammoPickup: 5 } },
+  arc:     { name: 'STORMCALLER', build: arc,    color: 0x9a7bff, stats: { slot: 6, interval: 0.05, auto: true, kind: 'beam', damage: 3, range: 18, ammoStart: 80, ammoMax: 200, ammoPickup: 50 } },
+  rail:    { name: 'LONGSHOT',   build: rail,    color: 0x4af0ff, stats: { slot: 7, interval: 1.4, auto: false, kind: 'rail', damage: 100, range: 400, ammoStart: 5, ammoMax: 25, ammoPickup: 5 } },
+  plasma:  { name: 'PULSE',      build: plasma,  color: 0x35d0ff, stats: { slot: 8, interval: 0.11, auto: true, kind: 'projectile', damage: 14, speed: 45, splash: 1.4, knock: 3, ammoStart: 50, ammoMax: 200, ammoPickup: 40 } },
 };
-export const WEAPON_ORDER: WeaponId[] = ['scatter', 'nailer', 'rocket', 'plasma', 'rail'];
+export const WEAPON_ORDER: WeaponId[] = ['blade', 'pistol', 'scatter', 'nailer', 'rocket', 'arc', 'rail', 'plasma'];
 export const buildWeapon = (id: WeaponId): WeaponModel => WEAPON_DEFS[id].build();

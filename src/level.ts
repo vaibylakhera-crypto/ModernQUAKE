@@ -74,3 +74,24 @@ export function jumpPadVelocity(from: [number, number, number], to: [number, num
   const T = tUp + tDown;
   return [(to[0] - from[0]) / T, vy, (to[2] - from[2]) / T];
 }
+
+// ── pickups (weapons you stand on to equip, plus health/armour) ──
+export type PickupDef =
+  | { kind: 'weapon'; id: 'scatter' | 'nailer' | 'rocket' | 'arc' | 'rail' | 'plasma'; pos: [number, number, number] }
+  | { kind: 'health'; amount: number; pos: [number, number, number] }
+  | { kind: 'armor'; amount: number; pos: [number, number, number] };
+
+export const pickups: PickupDef[] = [
+  { kind: 'weapon', id: 'scatter', pos: [-8, 0, 12] },       // central arena, easy to reach
+  { kind: 'weapon', id: 'nailer', pos: [8, 0, -12] },
+  { kind: 'weapon', id: 'rocket', pos: [0, 20, -3] },        // tower top: the contested power weapon
+  { kind: 'weapon', id: 'arc', pos: [38, 8, -3] },           // east platform
+  { kind: 'weapon', id: 'rail', pos: [3, 4, -38] },          // north platform
+  { kind: 'weapon', id: 'plasma', pos: [-38, 6, 3] },        // west platform
+  { kind: 'health', amount: 50, pos: [0, 12, 38] },          // south platform: mega health
+  { kind: 'armor', amount: 50, pos: [18, 3, -18] },          // narrow bridge
+  { kind: 'health', amount: 25, pos: [-12, 0, -12] },
+  { kind: 'armor', amount: 25, pos: [12, 0, 12] },
+  { kind: 'weapon', id: 'scatter', pos: [38, 8, 4] },
+  { kind: 'weapon', id: 'nailer', pos: [-38, 6, -4] },
+];
