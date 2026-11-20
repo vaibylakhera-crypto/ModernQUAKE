@@ -98,12 +98,14 @@ class Tracers {
 }
 
 // ───────────── projectiles ─────────────
-interface Proj { kind: WeaponId; pos: THREE.Vector3; vel: THREE.Vector3; life: number; obj: THREE.Object3D; trail: number; fromPlayer: boolean }
+interface Proj { kind: WeaponId; pos: THREE.Vector3; vel: THREE.Vector3; life: number; obj: THREE.Object3D; trail: number; fromPlayer: boolean; dmg: number }
 
 export interface CombatHooks {
   /** called for every explosion so the game can apply splash to the local player */
   explode(pos: THREE.Vector3, radius: number, damage: number, knock: number, fromPlayer: boolean): void;
   targets(): Target[];
+  playerBody(): { pos: THREE.Vector3; radius: number; height: number };
+  hurt(dmg: number, dir: THREE.Vector3): void;
 }
 
 export class Combat {
@@ -204,7 +206,12 @@ export class Combat {
     }
   }
 
-  private spawnProj(id: WeaponId, pos: THREE.Vector3, vel: THREE.Vector3) {
+  /** a bot's shot: same visuals, hurts the player, ignores other bots */
+  fireEnemy(id: WeaponId, origin: THREE.Vector3, dir: THREE.Vector3, dmg: number, speedScale: number) {
+    const st = WEAPON_DEFS[id].stats; this.spawnProj(id, origin.clone(), dir.clone().multiplyScalar((st.speed ?? 30) * speedScale), false, dmg);
+  }
+
+  private spawnProj(id: WeaponId, pos: THREE.Vector3, vel: THREE.Vector3, fromPlayer = true, dmg?: number) {
     let obj: THREE.Object3D;
     if (id === 'rocket') { obj = this.rocketProto.clone(true); }
     else if (id === 'plasma') {
@@ -220,7 +227,7 @@ export class Combat {
       halo.scale.set(0.13, 0.13, 1.1); g.add(halo); obj = g;
     }
     obj.position.copy(pos); if (id === 'rocket') obj.scale.setScalar(3.2); if (id !== 'plasma') obj.lookAt(pos.clone().sub(vel));   // model faces -Z, lookAt aims +Z this.scene.add(obj);
-    this.projs.push({ kind: id, pos, vel, life: 6, obj, trail: 0, fromPlayer: true });
+    this.projs.push({ kind: id, pos, vel, life: 6, obj, trail: 0, fromPlayer, dmg: dmg ?? WEAPON_DEFS[id].stats.damage });
   }
 
   // ───── effects ─────
@@ -264,9 +271,10 @@ export class Combat {
     for (let i = this.projs.length - 1; i >= 0; i--) {
       const pr = this.projs[i]; pr.life -= dt;
       const step = pr.vel.clone().multiplyScalar(dt); const dist = step.length(); const dir = step.clone().divideScalar(dist || 1);
-      let hitT = dist, kindHit: 'none' | 'world' | 'target' = 'none'; let n: THREE.Vector3 | null = null, tgHit: Target | null = null;
+      let hitT = dist, kindHit: 'none' | 'world' | 'target' | 'player' = 'none'; let n: THREE.Vector3 | null = null, tgHit: Target | null = null;
       const w = rayWorld(pr.pos, dir, dist); if (w) { hitT = w.t; n = w.n; kindHit = 'world'; }
-      for (const tg of this.hooks.targets()) { if (!tg.alive) continue; const t = rayTarget(pr.pos, dir, hitT, tg); if (t !== null && t <= hitT) { hitT = t; kindHit = 'target'; tgHit = tg; n = dir.clone().negate(); } }
+      if (pr.fromPlayer) { for (const tg of this.hooks.targets()) { if (!tg.alive) continue; const t = rayTarget(pr.pos, dir, hitT, tg); if (t !== null && t <= hitT) { hitT = t; kindHit = 'target'; tgHit = tg; n = dir.clone().negate(); } } }
+      else { const b = this.hooks.playerBody(); const t = rayTarget(pr.pos, dir, hitT, { pos: b.pos, radius: b.radius, height: b.height } as unknown as Target); if (t !== null && t <= hitT) { hitT = t; kindHit = 'player'; n = dir.clone().negate(); } }
       const st = WEAPON_DEFS[pr.kind].stats;
       if (kindHit === 'none') {
         pr.pos.add(step); pr.obj.position.copy(pr.pos);
@@ -283,9 +291,10 @@ export class Combat {
       }
       const hp = pr.pos.clone().addScaledVector(dir, hitT);
       this.scene.remove(pr.obj); this.projs.splice(i, 1);
-      if (tgHit) tgHit.hit(st.damage, pr.pos, dir, pr.kind);
-      if (pr.kind === 'rocket') { const e = hp.clone().addScaledVector(n!, 0.15); this.explosion(e, st.splash!); this.hooks.explode(e, st.splash!, st.damage, st.knock!, pr.fromPlayer); this.splashTargets(e, st.splash!, st.damage, tgHit); }
-      else if (pr.kind === 'plasma') { const e = hp.clone().addScaledVector(n!, 0.1); this.plasmaSplash(e, n!); this.hooks.explode(e, st.splash!, st.damage * 0.5, st.knock!, pr.fromPlayer); this.splashTargets(e, st.splash!, st.damage * 0.5, tgHit); }
+      if (tgHit) tgHit.hit(pr.dmg, pr.pos, dir, pr.kind);
+      if (kindHit === 'player') this.hooks.hurt(pr.dmg, dir);
+      if (pr.kind === 'rocket') { const e = hp.clone().addScaledVector(n!, 0.15); this.explosion(e, st.splash!); this.hooks.explode(e, st.splash!, pr.dmg, st.knock!, pr.fromPlayer); if (pr.fromPlayer) this.splashTargets(e, st.splash!, pr.dmg, tgHit); }
+      else if (pr.kind === 'plasma') { const e = hp.clone().addScaledVector(n!, 0.1); this.plasmaSplash(e, n!); this.hooks.explode(e, st.splash!, pr.dmg * 0.5, st.knock!, pr.fromPlayer); if (pr.fromPlayer) this.splashTargets(e, st.splash!, pr.dmg * 0.5, tgHit); }
       else this.sparks(hp, n!, 0xffc02d, 5);
     }
     // arc beam: jagged segments re-rolled every frame while active

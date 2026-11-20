@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { WEAPON_ORDER, WEAPON_DEFS, buildWeapon, WeaponId, WeaponModel } from './weapons';
+import { GRIP_Z, SUPPORT } from './grips';
+import { FpArms } from './fparms';
 
 // First-person weapon + armoured gloved hands, drawn in its own pass so it never clips into level geometry.
 // Hands are authored in the same real-world metre scale as the guns and scaled together with them,
@@ -11,20 +13,6 @@ const FIRE_FX: Record<WeaponId, { kick: number; flash: number }> = {
   blade: { kick: 0.0, flash: 0 }, pistol: { kick: 0.5, flash: 0.5 }, scatter: { kick: 1.0, flash: 1.0 }, nailer: { kick: 0.18, flash: 0.45 },
   rocket: { kick: 1.3, flash: 1.2 }, arc: { kick: 0.05, flash: 0.0 }, rail: { kick: 1.6, flash: 1.3 }, plasma: { kick: 0.22, flash: 0.55 },
 };
-// right-hand grip centre z in gun space (grip() in weapons.ts), blade is a fist around the handle
-const GRIP_Z: Record<WeaponId, number> = { blade: 0.02, pistol: 0.035, scatter: 0.1, nailer: 0.1, rocket: 0.0, arc: 0.08, rail: 0.1, plasma: 0.1 };
-// support hand: how it holds the gun. cup = palm under a flat surface, wrap = fingers around a vertical grip box
-type Support = { type: 'cup'; y: number; z: number } | { type: 'wrap'; y: number; z: number; gw: number; gd: number } | null;
-const SUPPORT: Record<WeaponId, Support> = {
-  blade: null, pistol: null,
-  scatter: { type: 'cup', y: -0.118, z: -0.42 },
-  nailer: { type: 'wrap', y: -0.14, z: -0.1, gw: 0.095, gd: 0.13 },
-  rocket: { type: 'wrap', y: -0.1, z: -0.5, gw: 0.05, gd: 0.08 },
-  arc: { type: 'cup', y: -0.11, z: -0.14 },
-  rail: { type: 'cup', y: -0.135, z: -0.2 },
-  plasma: { type: 'cup', y: -0.115, z: -0.12 },
-};
-
 const glove = new THREE.MeshPhongMaterial({ color: 0x39414d, specular: 0x7a8aa0, shininess: 40 });
 const gloveDark = new THREE.MeshPhongMaterial({ color: 0x1f252d, specular: 0x4a5668, shininess: 30 });
 const plate = new THREE.MeshPhongMaterial({ color: 0x5a6472, specular: 0xb4c0d0, shininess: 95 });
@@ -124,6 +112,8 @@ export class Viewmodel {
   private raise = 1;
   private kick = 0; private bobT = 0; private swayX = 0; private swayY = 0; private flashT = 0; private spin = 0; private swing = 0;
   onSwitch?: (id: WeaponId) => void;
+  fp: FpArms; private procHands: THREE.Object3D[] = [];
+  get armsReady() { return this.fp.ready; }
 
   constructor() {
     this.scene.add(new THREE.HemisphereLight(0xcfe8ff, 0x4a3a8a, 2.4));
@@ -152,14 +142,14 @@ export class Viewmodel {
       if (id === 'blade') { rh.add(fistHand(accent)); rh.position.set(0, 0, gz); }
       else { rh.add(gripHand(accent)); rh.position.set(0, -0.1, gz); rh.rotation.x = -0.28; }
       rh.scale.setScalar(1.45);
-      holder.add(rh);
-      holder.add(put(forearm(new THREE.Vector3(0.3, -0.42, 0.7), accent), 0.0, id === 'blade' ? -0.03 : -0.13, gz + 0.03));
+      holder.add(rh); this.procHands.push(rh);
+      const fa = put(forearm(new THREE.Vector3(0.3, -0.42, 0.7), accent), 0.0, id === 'blade' ? -0.03 : -0.13, gz + 0.03); holder.add(fa); this.procHands.push(fa);
       // support hand
       const sup = SUPPORT[id];
       if (sup) {
         const lh = sup.type === 'cup' ? cupHand(-1, accent) : wrapHand(-1, sup.gw, sup.gd, accent);
-        lh.position.set(0, sup.y, sup.z); lh.scale.setScalar(1.35); holder.add(lh);
-        holder.add(put(forearm(new THREE.Vector3(-0.32, -0.34, 0.72), accent), -0.0, sup.y - 0.02, sup.z + 0.06));
+        lh.position.set(0, sup.y, sup.z); lh.scale.setScalar(1.35); holder.add(lh); this.procHands.push(lh);
+        const fl = put(forearm(new THREE.Vector3(-0.32, -0.34, 0.72), accent), -0.0, sup.y - 0.02, sup.z + 0.06); holder.add(fl); this.procHands.push(fl);
       }
       const fm = new THREE.MeshBasicMaterial({ map: flashTex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, color: new THREE.Color(WEAPON_DEFS[id].color).lerp(new THREE.Color(1, 1, 1), 0.5) });
       const flash = new THREE.Mesh(new THREE.PlaneGeometry(0.34, 0.34), fm); flash.visible = false;
@@ -169,6 +159,9 @@ export class Viewmodel {
       this.models.set(id, { holder, model, flash });
     }
     this.models.get(this.current)!.holder.visible = true;
+    // real-hand arms load async; swap out the placeholder box hands when they are ready
+    this.fp = new FpArms(this.scene);
+    this.fp.init().then(() => { for (const o of this.procHands) o.visible = false; });
   }
 
   resize(aspect: number) { this.camera.aspect = aspect; this.camera.updateProjectionMatrix(); }
@@ -223,5 +216,6 @@ export class Viewmodel {
     const sw = Math.sin(this.swing * Math.PI);   // blade slash arc
     h.position.set(bx + this.swayX * 0.5 - sw * 0.12, by - lower * 0.35 + this.swayY * 0.5 - sw * 0.04, this.kick * 0.07 - sw * 0.12);
     h.rotation.set(-this.kick * 0.06 + this.swayY - lower * 0.9 + sw * 0.4, this.swayX + sw * 0.7, -this.swayX * 0.6 + Math.sin(this.bobT * 0.5) * 0.004 * moving - sw * 0.9);
+    if (this.fp.ready) { h.updateMatrixWorld(true); this.fp.update(h, this.current); }
   }
 }

@@ -13,6 +13,7 @@ import { Viewmodel } from './viewmodel';
 import { Loadout } from './loadout';
 import { Combat, Target } from './combat';
 import { Pickups } from './pickups';
+import { Bot, spawnBots } from './bot';
 import { WEAPON_ORDER, WEAPON_DEFS } from './weapons';
 
 const Q = getQuality();
@@ -22,6 +23,7 @@ const renderer = new THREE.WebGLRenderer({ antialias: Q.antialias, powerPreferen
 let renderScale = Q.renderScale;
 const applyRes = () => { renderer.setPixelRatio(Math.min(devicePixelRatio, Q.pixelRatio) * renderScale); renderer.setSize(innerWidth, innerHeight); };
 applyRes();
+renderer.localClippingEnabled = true;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 0.9;
 document.body.prepend(renderer.domElement);
@@ -147,8 +149,12 @@ function say(text: string) { msgEl.textContent = text; msgEl.style.opacity = '1'
 
 const targets: Target[] = [];            // bots / dummies register here
 const flashEl = document.createElement('div'); flashEl.style.cssText = 'position:fixed;inset:0;pointer-events:none;background:#ff2a1a;opacity:0;z-index:3'; document.body.appendChild(flashEl);
+const playerBody = { pos: new THREE.Vector3(), radius: 0.42, height: 1.75 };
+let frags = 0; const fragsEl = document.getElementById('frags')!;
 const combat = new Combat(scene, {
   targets: () => targets,
+  playerBody: () => { playerBody.pos.set(player.x, player.y, player.z); playerBody.height = player.height; return playerBody; },
+  hurt(dmg, dir) { player.knock(dir.x * 1.5, 0.3, dir.z * 1.5); if (player.takeDamage(dmg)) die('DIED'); },
   explode(pos, radius, dmg, knock, fromPlayer) {
     // splash on the local player (rocket jumps!)
     const c = new THREE.Vector3(player.x, player.y + 0.9, player.z); const d = c.distanceTo(pos);
@@ -160,6 +166,16 @@ const combat = new Combat(scene, {
   },
 });
 const pickupSys = new Pickups(scene);
+const hitEl = document.getElementById('hit')!; let hitT = 0;
+const bots: Bot[] = [];
+const botVel = new THREE.Vector3(), botPrev = new THREE.Vector3(); let botPrevSet = false;
+spawnBots(scene, {
+  player: { pos: new THREE.Vector3(), eye: new THREE.Vector3(), vel: botVel },
+  fire: (id, o, d, dmg, sp) => combat.fireEnemy(id, o, d, dmg, sp),
+  onKilled: b => { frags++; fragsEl.textContent = `FRAGS ${frags}`; say(`YOU FRAGGED ${b.name}`); },
+  onHit: () => { hitT = 0.18; },
+}).then(list => { for (const b of list) { bots.push(b); targets.push(b); (b as any).ctx.player = botCtxPlayer; } });
+const botCtxPlayer = { pos: new THREE.Vector3(), eye: new THREE.Vector3(), vel: botVel };
 function die(why: string) {
   say(why === 'EXPLODED' ? 'YOU BLEW UP' : why === 'FELL' ? 'YOU FELL' : 'YOU DIED'); player.respawn(); yaw = player.yaw; pitch = 0;
   loadout.reset(); vm.show('pistol'); lastBar = '';
@@ -237,4 +253,4 @@ function frame(now: number) {
 requestAnimationFrame(frame);
 
 // dev/test hook
-(window as any).__game = { doFire, player, camera, vm, loadout, combat, pickupSys, targets, say, die, renderer, world, Q, get scale() { return renderScale; }, setLook: (y: number, p: number) => { yaw = y; pitch = p; }, PM };
+(window as any).__game = { bots, doFire, player, camera, vm, loadout, combat, pickupSys, targets, say, die, renderer, world, Q, get scale() { return renderScale; }, setLook: (y: number, p: number) => { yaw = y; pitch = p; }, PM };

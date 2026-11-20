@@ -2,13 +2,16 @@ import * as THREE from 'three';
 import { Sky } from './sky';
 import { WEAPON_ORDER, WEAPON_DEFS, buildWeapon } from './weapons';
 import { Viewmodel } from './viewmodel';
+import { makeRig } from './character';
+import { buildFighter } from './dress';
+import { animate, holdWeapon, AnimState } from './anim';
 
 // Standalone model viewer: /viewer.html?m=weapons  (grid of every weapon on turntables)
 const params = new URLSearchParams(location.search);
 const mode = params.get('m') || 'weapons';
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setPixelRatio(1); renderer.setSize(innerWidth, innerHeight);
+renderer.localClippingEnabled = true; renderer.setPixelRatio(1); renderer.setSize(innerWidth, innerHeight);
 renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 0.95;
 document.body.prepend(renderer.domElement);
 const scene = new THREE.Scene();
@@ -56,6 +59,7 @@ function renderVM() {
   const cols = only ? 1 : 4, rows = only ? 1 : 2, cw = W / cols, ch = H / rows;
   list.forEach((v, i) => {
     const x = (i % cols) * cw, y = H - (Math.floor(i / cols) + 1) * ch;
+    v.update(0.016, { speed: 0, grounded: true, lookDX: 0, lookDY: 0, spinning: false, beam: false });
     renderer.setViewport(x, y, cw, ch); renderer.setScissor(x, y, cw, ch); renderer.clear(); v.resize(cw / ch);
     if (params.get('fov')) { v.camera.fov = Number(params.get('fov')); v.camera.updateProjectionMatrix(); v.camera.lookAt(0.12, -0.22, -0.6); }
     if (params.get('close')) {     // 3/4 audit camera close to the hands + gun
@@ -64,6 +68,27 @@ function renderVM() {
       v.camera.position.set(0.2 + Math.sin(a) * 0.62, -0.12 + 0.12, -0.55 + Math.cos(a) * 0.62 - 0.06); v.camera.lookAt(0.2, -0.24, -0.6);
     }
     renderer.render(v.scene, v.camera);
+  });
+}
+
+// m=char: load the base character and print bind-pose bone positions
+if (mode === 'char') {
+  buildFighter((params.get('g') as any) || 'male', params.get('team') ? parseInt(params.get('team')!, 16) : 0x35d8ff).then(rig => {
+    scene.add(rig.root);
+    const bb = new THREE.Box3().setFromObject(rig.root); const sz = bb.getSize(new THREE.Vector3()); const c = bb.getCenter(new THREE.Vector3());
+    camera.position.set(0, c.y, 9); camera.lookAt(0, c.y, 0);
+    const pick = ['root','pelvis','spine_03','neck_01','Head','clavicle_l','upperarm_l','lowerarm_l','hand_l','thigh_l','calf_l','foot_l','ball_l','upperarm_r','hand_r'];
+    (window as any).__rig = rig;
+    label.textContent = `size ${sz.x.toFixed(2)} x ${sz.y.toFixed(2)} x ${sz.z.toFixed(2)}  min y ${bb.min.y.toFixed(2)}  ` + pick.map(n => `${n}(${rig.restPos[n].toArray().map(v => v.toFixed(2)).join(',')})`).join(' ');
+    label.style.whiteSpace = 'pre-wrap'; label.style.maxWidth = '1100px'; label.style.fontSize = '11px';
+    // visible with PBR-less default material? show what we get
+    turn.push(rig.root);
+    const st: AnimState = { t: Number(params.get('t') || 0), speed: Number(params.get('run') || 0), dead: Number(params.get('dead') || 0), look: 0, pain: 0, fire: 0 };
+    animate(rig, st);
+    if (params.get('gun')) holdWeapon(rig, params.get('gun') as any);
+    (window as any).__anim = st;
+    (window as any).__tick = () => animate(rig, st);
+    if (!params.get('freeze')) { const t0 = performance.now(); setInterval(() => { st.t = (performance.now() - t0) / 1000; animate(rig, st); }, 16); }
   });
 }
 
@@ -78,3 +103,4 @@ function frame(now: number) {
 requestAnimationFrame(frame);
 addEventListener('resize', () => { renderer.setSize(innerWidth, innerHeight); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); });
 (window as any).__v = { scene, camera, renderer, THREE };
+(window as any).__vms = vms;

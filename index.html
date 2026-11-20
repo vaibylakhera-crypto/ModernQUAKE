@@ -22,10 +22,12 @@
   #start{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(0,0,10,.55);cursor:pointer;z-index:5;backdrop-filter:blur(3px)}
   #start h1{font-size:72px;letter-spacing:12px;margin:0;background:linear-gradient(90deg,#6bffb8,#5ee7ff,#c27bff);-webkit-background-clip:text;color:transparent}
   #start p{opacity:.8;letter-spacing:2px;margin:6px 0}
-  #wbar{position:absolute;bottom:20px;left:50%;transform:translateX(-50%);display:flex;gap:8px}
+  #frags{position:absolute;top:18px;left:24px;font-size:20px;font-weight:700;letter-spacing:3px;color:#ffd24a}
+  #hit{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:34px;color:#fff;opacity:0;text-shadow:0 0 10px #f33}
+  #wbar{position:absolute;bottom:8px;left:50%;transform:translateX(-50%);display:flex;gap:8px}
   .wslot{min-width:92px;padding:6px 10px;border:1px solid #7ffff022;background:#0007;text-align:center;font-weight:700;letter-spacing:2px;font-size:12px;opacity:.55;transition:.12s}
   .wslot b{display:block;font-size:20px;letter-spacing:0}
-  .wslot{min-width:78px;opacity:.22}
+  .wslot{min-width:64px;opacity:.22;padding:3px 6px !important}
   .wslot.own{opacity:.6}
   .wslot.dry{color:#ff6a5a}
   .wslot i{display:block;font-style:normal;font-size:12px;letter-spacing:1px;min-height:14px;color:#cfe}
@@ -38,6 +40,8 @@
   <div id="cross"></div>
   <div id="medal">FREE-FOR-ALL  ·  PRACTICE</div>
   <div id="msg"></div>
+  <div id="frags">FRAGS 0</div>
+  <div id="hit">✕</div>
   <div class="stat" id="hp">100<small>HEALTH</small></div>
   <div class="stat" id="ar">0<small>ARMOR</small></div>
   <div id="wbar"></div>
