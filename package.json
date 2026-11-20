@@ -1,0 +1,33 @@
+{
+  "name": "modernquake",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "typecheck": "tsc"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vaibylakhera-crypto/ModernQUAKE.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/vaibylakhera-crypto/ModernQUAKE/issues"
+  },
+  "homepage": "https://github.com/vaibylakhera-crypto/ModernQUAKE#readme",
+  "dependencies": {
+    "three": "^0.187.0"
+  },
+  "devDependencies": {
+    "@types/three": "^0.187.0",
+    "three-mesh-bvh": "^0.9.18",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8"
+  }
+}

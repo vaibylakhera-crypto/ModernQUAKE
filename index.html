@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>ModernQUAKE</title>
+<style>
+  html,body{margin:0;height:100%;background:#000;overflow:hidden;font-family:"Rajdhani","Segoe UI",system-ui,sans-serif;color:#dff}
+  canvas{display:block}
+  #hud{position:fixed;inset:0;pointer-events:none;text-shadow:0 0 8px #000}
+  #cross{position:absolute;left:50%;top:50%;width:18px;height:18px;margin:-9px 0 0 -9px}
+  #cross:before,#cross:after{content:"";position:absolute;background:#7ffff0;box-shadow:0 0 6px #0ff}
+  #cross:before{left:8px;top:0;width:2px;height:18px;clip-path:polygon(0 0,100% 0,100% 35%,0 35%,0 65%,100% 65%,100% 100%,0 100%)}
+  #cross:after{top:8px;left:0;height:2px;width:18px;clip-path:polygon(0 0,35% 0,35% 100%,0 100%,65% 0,100% 0,100% 100%,65% 100%)}
+  .stat{position:absolute;bottom:22px;font-weight:700;font-size:64px;letter-spacing:1px;line-height:1}
+  .stat small{display:block;font-size:13px;letter-spacing:3px;opacity:.7;font-weight:600}
+  #hp{left:40px;color:#ffd24a}
+  #ar{left:200px;color:#ff9a3c}
+  #speed{right:40px;color:#7ffff0}
+  #medal{position:absolute;top:18px;left:50%;transform:translateX(-50%);font-size:14px;letter-spacing:4px;opacity:.75}
+  #msg{position:absolute;top:38%;left:50%;transform:translateX(-50%);font-size:22px;letter-spacing:3px;color:#fff;opacity:0;transition:opacity .4s}
+  #start{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(0,0,10,.55);cursor:pointer;z-index:5;backdrop-filter:blur(3px)}
+  #start h1{font-size:72px;letter-spacing:12px;margin:0;background:linear-gradient(90deg,#6bffb8,#5ee7ff,#c27bff);-webkit-background-clip:text;color:transparent}
+  #start p{opacity:.8;letter-spacing:2px;margin:6px 0}
+  #wbar{position:absolute;bottom:20px;left:50%;transform:translateX(-50%);display:flex;gap:8px}
+  .wslot{min-width:92px;padding:6px 10px;border:1px solid #7ffff022;background:#0007;text-align:center;font-weight:700;letter-spacing:2px;font-size:12px;opacity:.55;transition:.12s}
+  .wslot b{display:block;font-size:20px;letter-spacing:0}
+  .wslot.on{opacity:1;transform:translateY(-6px);border-color:var(--c);box-shadow:0 0 14px var(--c)}
+  kbd{border:1px solid #7ffff055;border-radius:4px;padding:1px 7px;margin:0 2px;background:#0008}
+</style>
+</head>
+<body>
+<div id="hud">
+  <div id="cross"></div>
+  <div id="medal">FREE-FOR-ALL  ·  PRACTICE</div>
+  <div id="msg"></div>
+  <div class="stat" id="hp">100<small>HEALTH</small></div>
+  <div class="stat" id="ar">0<small>ARMOR</small></div>
+  <div id="wbar"></div>
+  <div class="stat" id="speed">0<small>UNITS / SEC</small></div>
+</div>
+<div id="start">
+  <h1>MODERNQUAKE</h1>
+  <p>CLICK TO PLAY</p>
+  <p><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move &nbsp; <kbd>SPACE</kbd> jump (tap each hop) &nbsp; <kbd>C</kbd> crouch &nbsp; <kbd>R</kbd> respawn</p>
+  <p>Strafe + turn in the air to gain speed. Step on the glowing pads.</p>
+</div>
+<script type="module" src="/src/main.ts"></script>
+</body>
+</html>
