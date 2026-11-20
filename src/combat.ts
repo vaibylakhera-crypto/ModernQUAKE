@@ -228,6 +228,17 @@ export class Combat {
     }
   }
 
+  /** another online player's shot, replicated here: projectiles are real (they hurt us), hitscan is visual only (their client reports the hit) */
+  remoteShot(id: WeaponId, muzzle: THREE.Vector3, dir: THREE.Vector3) {
+    const st = WEAPON_DEFS[id].stats; const col = WEAPON_DEFS[id].color;
+    if (st.kind === 'projectile') { this.spawnProj(id, muzzle.clone(), dir.clone().multiplyScalar(st.speed!), false, st.damage); return; }
+    if (st.kind === 'melee') return;
+    const range = st.range ?? 200; const w = rayWorld(muzzle, dir, range); const end = muzzle.clone().addScaledVector(dir, w ? w.t : range);
+    if (st.kind === 'rail') { this.railBeam(muzzle, end); if (w) this.sparks(end, w.n, col, 10); }
+    else if (st.kind === 'beam') { this.arcT = 0.09; this.arcA.copy(muzzle); this.arcB.copy(end); }
+    else { this.tracers.fly(muzzle, end, 0.05, 0xfff0a0, 300, 5); if (w) this.sparks(end, w.n, col, 4); }
+  }
+
   /** a bot's shot: same visuals, hurts the player, ignores other bots */
   fireEnemy(id: WeaponId, origin: THREE.Vector3, dir: THREE.Vector3, dmg: number, speedScale: number) {
     const st = WEAPON_DEFS[id].stats; this.spawnProj(id, origin.clone(), dir.clone().multiplyScalar((st.speed ?? 30) * speedScale), false, dmg);

@@ -22,6 +22,11 @@
   #speed{right:40px;color:#7ffff0}
   #medal{position:absolute;top:18px;left:50%;transform:translateX(-50%);font-size:14px;letter-spacing:4px;opacity:.75}
   #msg{position:absolute;top:38%;left:50%;transform:translateX(-50%);font-size:22px;letter-spacing:3px;color:#fff;opacity:0;transition:opacity .4s}
+  #net{position:absolute;top:18px;right:24px;text-align:right;font-size:14px;letter-spacing:2px;line-height:1.5;color:#bfefff}
+  #net b{color:#ffd24a} #net .me{color:#7ffff0}
+  #online{margin-top:18px;display:flex;gap:8px;align-items:center;cursor:default}
+  #online input{background:rgba(10,20,40,.7);border:1px solid #5ee7ff55;color:#e9ffff;padding:8px 10px;border-radius:6px;font:600 15px inherit;letter-spacing:2px;text-transform:uppercase;width:130px;text-align:center}
+  #online button{background:linear-gradient(90deg,#3ee8b0,#5ea7ff);color:#04101c;border:0;border-radius:6px;padding:9px 16px;font:700 14px inherit;letter-spacing:2px;cursor:pointer}
   #start{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(0,0,10,.55);cursor:pointer;z-index:5;backdrop-filter:blur(3px)}
   #start h1{font-size:72px;letter-spacing:12px;margin:0;background:linear-gradient(90deg,#6bffb8,#5ee7ff,#c27bff);-webkit-background-clip:text;color:transparent}
   #start p{opacity:.8;letter-spacing:2px;margin:6px 0}
@@ -41,6 +46,7 @@
 <body>
 <div id="hud">
   <div id="cross"><i></i><i></i><i></i><i></i><b></b></div>
+  <div id="net"></div>
   <div id="medal">FREE-FOR-ALL  ·  PRACTICE</div>
   <div id="msg"></div>
   <div id="frags">FRAGS 0</div>
@@ -55,6 +61,8 @@
   <p>CLICK TO PLAY</p>
   <p><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move &nbsp; <kbd>SPACE</kbd> jump (tap each hop) &nbsp; <kbd>C</kbd> crouch &nbsp; <kbd>R</kbd> respawn</p>
   <p>Strafe + turn in the air to gain speed. Step on the glowing pads.</p>
+  <div id="online"><input id="pname" maxlength="14" placeholder="NAME"><input id="proom" maxlength="12" placeholder="ROOM CODE"><button id="pgo">PLAY ONLINE</button></div>
+  <p id="netstat" style="font-size:13px;opacity:.7"></p>
 </div>
 <script type="module" src="/src/main.ts"></script>
 </body>

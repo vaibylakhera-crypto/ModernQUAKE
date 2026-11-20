@@ -7,7 +7,9 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "vite",
     "build": "tsc && vite build",
-    "typecheck": "tsc"
+    "typecheck": "tsc",
+    "server": "node server/server.mjs",
+    "start": "npm run build && node server/server.mjs"
   },
   "repository": {
     "type": "git",
@@ -22,7 +24,8 @@
   },
   "homepage": "https://github.com/vaibylakhera-crypto/ModernQUAKE#readme",
   "dependencies": {
-    "three": "^0.187.0"
+    "three": "^0.187.0",
+    "ws": "^8.23.0"
   },
   "devDependencies": {
     "@types/three": "^0.187.0",

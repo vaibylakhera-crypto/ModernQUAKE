@@ -11,9 +11,11 @@ import { Player, PM, Input } from './player';
 import { boxes } from './level';
 import { Viewmodel } from './viewmodel';
 import { Loadout } from './loadout';
-import { Combat, Target } from './combat';
+import { Combat, Target, rayWorld } from './combat';
 import { Pickups } from './pickups';
 import { Bot, spawnBots } from './bot';
+import { buildSurround } from './surround';
+import { Net, RemotePlayer, PlayerInfo } from './net';
 import { WEAPON_ORDER, WEAPON_DEFS } from './weapons';
 
 const Q = getQuality();
@@ -56,6 +58,7 @@ const stars = new Stars(sky.bandN);
 scene.add(stars.mesh);
 scene.fog = new THREE.FogExp2(0x05070f, 0.0025);   // depth cue: far platforms sink into the void
 
+const surround = buildSurround(); scene.add(surround.group);
 const world = new World(Q);
 scene.add(world.group);
 world.build();
@@ -169,14 +172,60 @@ const pickupSys = new Pickups(scene);
 const hitEl = document.getElementById('hit')!; let hitT = 0;
 const bots: Bot[] = [];
 const botVel = new THREE.Vector3(), botPrev = new THREE.Vector3(); let botPrevSet = false;
-spawnBots(scene, {
+const qs = new URLSearchParams(location.search); const roomCode = (qs.get('room') || '').trim(); const myName = (qs.get('name') || 'PLAYER').slice(0, 14);
+if (!roomCode) spawnBots(scene, {
   player: { pos: new THREE.Vector3(), eye: new THREE.Vector3(), vel: botVel },
   fire: (id, o, d, dmg, sp) => combat.fireEnemy(id, o, d, dmg, sp),
   onKilled: b => { frags++; fragsEl.textContent = `FRAGS ${frags}`; say(`YOU FRAGGED ${b.name}`); },
   onHit: () => { hitT = 0.18; },
 }).then(list => { for (const b of list) { bots.push(b); targets.push(b); (b as any).ctx.player = botCtxPlayer; } });
 const botCtxPlayer = { pos: new THREE.Vector3(), eye: new THREE.Vector3(), vel: botVel };
+
+// ---- online ----
+const remotes = new Map<number, RemotePlayer>();
+const netEl = document.getElementById('net')!;
+let lastAttacker = 0; let scoreboard: PlayerInfo[] = []; let netState = 'offline';
+const dirV = (a: number[]) => new THREE.Vector3(a?.[0] ?? 0, a?.[1] ?? 0, a?.[2] ?? 0);
+function addRemote(p: PlayerInfo) {
+  if (p.id === net.id || remotes.has(p.id)) return;
+  const r = new RemotePlayer(p, scene, (to, dmg, dir, kind) => { net.send({ t: 'hit', to, dmg, dir: [dir.x, dir.y, dir.z], kind }); hitT = 0.18; });
+  remotes.set(p.id, r); targets.push(r);
+}
+function drawNet() {
+  if (!roomCode) { netEl.textContent = ''; return; }
+  const rows = [...scoreboard].sort((a, b) => b.frags - a.frags).map(p => `<div class="${p.id === net.id ? 'me' : ''}">${p.name} <b>${p.frags}</b> / ${p.deaths}</div>`).join('');
+  netEl.innerHTML = `ROOM <b>${roomCode.toUpperCase()}</b> · ${netState.toUpperCase()}${rows}`;
+}
+const net = new Net({
+  status(st) { netState = st; (document.getElementById('netstat')!).textContent = st === 'offline' ? 'Could not reach the server - playing offline' : st === 'full' ? 'Room is full (8 max)' : ''; drawNet(); },
+  welcome(_id, _room, players) { scoreboard = players; for (const p of players) addRemote(p); say('CONNECTED'); drawNet(); },
+  join(p) { scoreboard.push(p); addRemote(p); say(`${p.name} JOINED`); drawNet(); },
+  leave(id) { const r = remotes.get(id); if (r) { say(`${r.info.name} LEFT`); r.dispose(); targets.splice(targets.indexOf(r), 1); remotes.delete(id); } scoreboard = scoreboard.filter(p => p.id !== id); drawNet(); },
+  state(id, m) { remotes.get(id)?.setState(m.p, m.yaw, m.w, m.hp, !!m.dead); },
+  fire(id, m) { const r = remotes.get(id); r?.flashFire(); combat.remoteShot(m.w, dirV(m.o), dirV(m.d)); lastAttacker = id; },
+  hit(from, dmg, dir, _kind) { lastAttacker = from; const d = dirV(dir); player.knock(d.x * 1.5, 0.3, d.z * 1.5); if (player.takeDamage(dmg)) die('DIED'); },
+  killed(id, by, board) {
+    scoreboard = board; drawNet();
+    const v = board.find(p => p.id === id), k = board.find(p => p.id === by);
+    if (v && id !== net.id) say(k && by === net.id ? `YOU FRAGGED ${v.name}` : k ? `${k.name} FRAGGED ${v.name}` : `${v.name} DIED`);
+  },
+});
+function wireOnlineUI() {
+  const nameI = document.getElementById('pname') as HTMLInputElement, roomI = document.getElementById('proom') as HTMLInputElement, go = document.getElementById('pgo')!;
+  const saved = (k: string) => { try { return localStorage.getItem(k) || ''; } catch { return ''; } };
+  nameI.value = myName !== 'PLAYER' ? myName : saved('mq-name'); roomI.value = roomCode || saved('mq-room');
+  for (const e of [nameI, roomI, go]) e.addEventListener('click', ev => ev.stopPropagation());
+  for (const e of [nameI, roomI]) e.addEventListener('keydown', ev => { ev.stopPropagation(); if ((ev as KeyboardEvent).key === 'Enter') go.click(); });
+  go.addEventListener('click', () => {
+    const n = (nameI.value || 'PLAYER').trim(), r = (roomI.value || 'LOBBY').trim();
+    try { localStorage.setItem('mq-name', n); localStorage.setItem('mq-room', r); } catch { /* ignore */ }
+    location.search = `?room=${encodeURIComponent(r)}&name=${encodeURIComponent(n)}`;
+  });
+}
+wireOnlineUI();
+if (roomCode) net.connect(roomCode, myName);
 function die(why: string) {
+  if (net.online) net.send({ t: 'dead', by: lastAttacker });
   say(why === 'EXPLODED' ? 'YOU BLEW UP' : why === 'FELL' ? 'YOU FELL' : 'YOU DIED'); player.respawn(); yaw = player.yaw; pitch = 0;
   loadout.reset(); vm.show('pistol'); lastBar = '';
 }
@@ -209,6 +258,7 @@ function doFire(id: Parameters<typeof combat.fire>[0]) {
   camera.updateMatrixWorld(true);
   const muzzle = camera.localToWorld(vm.muzzleCamSpace());
   combat.fire(id, _eye, _dir, muzzle);
+  if (net.online) { const w = rayWorld(_eye, _dir, 200); const aim = _eye.clone().addScaledVector(_dir, w ? w.t : 200); const dd = aim.sub(muzzle).normalize(); net.send({ t: 'fire', w: id, o: [muzzle.x, muzzle.y, muzzle.z], d: [dd.x, dd.y, dd.z] }); }
   vm.fire(id);
 }
 
@@ -238,11 +288,18 @@ function frame(now: number) {
     else if (got.kind === 'health') { player.health = Math.min(100, player.health + got.amount); say(`+${got.amount} HEALTH`); }
     else { player.armor = Math.min(100, player.armor + got.amount); say(`+${got.amount} ARMOR`); }
   }
+  { botCtxPlayer.pos.set(player.x, player.y, player.z); botCtxPlayer.eye.set(player.x, player.y + player.eye, player.z);
+    if (botPrevSet) botVel.set(player.x - botPrev.x, 0, player.z - botPrev.z).multiplyScalar(1 / Math.max(0.008, frameMs / 1000)); botPrev.set(player.x, player.y, player.z); botPrevSet = true;
+    const bdt = Math.min(0.05, frameMs / 1000);
+    if (!(window as any).__freezeBots) for (const b of bots) b.update(bdt);
+    for (const r of remotes.values()) r.update(bdt);
+    hitT = Math.max(0, hitT - bdt); hitEl.style.opacity = String(Math.min(1, hitT * 8));
+    net.sendState(bdt, { p: [player.x, player.y, player.z], yaw, pitch, w: vm.current, hp: player.health, dead: false }); }
   if (!(window as any).__freeze) combat.update(Math.min(0.05, frameMs / 1000));
   stars.update(camera, renderer.getPixelRatio());
   if (!Q.liveSky) { const a = now / 1000 * 0.004; scene.backgroundRotation.y = a; stars.mesh.rotation.y = a; }
   if (Q.liveSky) sky.update(now / 1000, camera);
-  world.update(now / 1000);
+  world.update(now / 1000); surround.update(now / 1000);
   hud();
   if (composer) composer.render(); else renderer.render(scene, camera);
   vm.update(Math.min(0.05, frameMs / 1000), { speed: player.speedXZ, grounded: player.grounded, lookDX, lookDY, spinning: mouseDown && locked() && vm.current === 'nailer', beam: mouseDown && locked() && vm.current === 'arc' }); lookDX = lookDY = 0;
@@ -253,4 +310,4 @@ function frame(now: number) {
 requestAnimationFrame(frame);
 
 // dev/test hook
-(window as any).__game = { bots, doFire, player, camera, vm, loadout, combat, pickupSys, targets, say, die, renderer, world, Q, get scale() { return renderScale; }, setLook: (y: number, p: number) => { yaw = y; pitch = p; }, PM };
+(window as any).__game = { bots, net, remotes, doFire, player, camera, vm, loadout, combat, pickupSys, targets, say, die, renderer, world, Q, get scale() { return renderScale; }, setLook: (y: number, p: number) => { yaw = y; pitch = p; }, PM };
