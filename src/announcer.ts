@@ -17,8 +17,23 @@ export class Announcer {
     try { speechSynthesis.getVoices(); speechSynthesis.onvoiceschanged = () => { this.voice = null; }; } catch { /* no speech */ }
   }
   setEnabled(v: boolean) { this.enabled = v; try { localStorage.setItem('mq-announcer', v ? '1' : '0'); } catch { /* ignore */ } if (!v) try { speechSynthesis.cancel(); } catch { /* ignore */ } }
+  private said = new Set<string>(); private stand: number | null = null;
   /** new match: first blood is available again */
-  reset() { this.kills = []; this.spree = 0; this.first = true; }
+  reset() { this.kills = []; this.spree = 0; this.first = true; this.said.clear(); this.stand = null; }
+  /**
+   * match calls, checked a few times a second while playing.
+   * timeLeft: seconds on the clock (-1 = no limit) · fragsLeft: what the leader still needs (-1 = none) ·
+   * standing: where the local player is (1 leading, 0 tied for the lead, -1 behind, null = nobody has scored) · elapsed: seconds played
+   */
+  match(timeLeft: number, fragsLeft: number, standing: number | null, elapsed: number) {
+    const once = (k: string, text: string, level = 2) => { if (this.said.has(k)) return; this.said.add(k); this.say(text, '', level); };
+    if (timeLeft >= 0) for (const [w, t] of [[60, 'ONE MINUTE REMAINING'], [30, '30 SECONDS'], [10, '10 SECONDS']] as [number, string][]) if (timeLeft <= w && timeLeft > w - 4) once('t' + w, t, w === 10 ? 3 : 2);
+    if (fragsLeft >= 1 && fragsLeft <= 3) once('f' + fragsLeft, fragsLeft === 1 ? 'ONE FRAG LEFT' : `${fragsLeft} FRAGS LEFT`, fragsLeft === 1 ? 3 : 2);
+    if (standing !== null) {
+      if (this.stand !== null && standing !== this.stand && elapsed > 12) this.say(standing === 1 ? 'YOU HAVE TAKEN THE LEAD' : standing === 0 ? 'TIED FOR THE LEAD' : 'YOU HAVE LOST THE LEAD', '', 2);
+      this.stand = standing;
+    }
+  }
   /** the local player died: the spree and the chain end */
   died() { this.kills = []; this.spree = 0; }
   /** the local player scored a kill */

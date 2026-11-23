@@ -242,9 +242,66 @@ export function stinger(level: number) {
 }
 /** we took damage: a dull thump with a grunt-like noise */
 export function hurt() { if (!ready() || !gate('hurt', 80)) return; const b = bus(1.1, 0, 0.18); tn(b, { dur: 0.16, peak: 0.55, type: 'sine', f0: 170, f1: 58 }); nz(b, { dur: 0.13, peak: 0.3, type: 'lowpass', f0: 1300, f1: 180 }); }
+/** a footstep: a dull boot thump on a hard floor, with a tiny metallic scuff. `k` 0..1 = how fast you run */
+export function step(k = 1) {
+  if (!ready() || !gate('step', 110)) return; const b = bus(0.3 + 0.32 * k, 0, 0.1);
+  thump(b, { dur: 0.1, peak: 0.55, f: 84 * jit(0.12), drop: 1.7 });
+  nz(b, { dur: 0.055, peak: 0.2, type: 'bandpass', f0: 1000 * jit(0.2), f1: 420, q: 0.9 });
+  if (k > 0.5) ring(b, { t: 0.004, dur: 0.03, peak: 0.035, f: 2300 * jit(0.15) });
+}
+/** pushing off the floor */
+export function jump() {
+  if (!ready() || !gate('jump', 120)) return; const b = bus(0.55, 0, 0.12);
+  thump(b, { dur: 0.12, peak: 0.4, f: 66, drop: 1.8 }); nz(b, { dur: 0.1, peak: 0.12, type: 'highpass', f0: 1600, f1: 700 });
+}
+/** coming down: heavier the faster you hit the ground (`v` in m/s) */
+export function land(v: number) {
+  if (v < 5 || !ready() || !gate('land', 140)) return; const k = Math.min(1, (v - 4) / 16), b = bus(0.5 + 0.6 * k, 0, 0.18);
+  thump(b, { dur: 0.16 + 0.12 * k, peak: 0.6 + 0.5 * k, f: 62, drop: 1.9 }); nz(b, { dur: 0.12, peak: 0.12 + 0.3 * k, type: 'lowpass', f0: 1400, f1: 150, q: 0.6 });
+  if (k > 0.45) nz(b, { dur: 0.05, peak: 0.12, type: 'bandpass', f0: 2600, f1: 1200, q: 1 });
+}
+/** low health: a slow double heartbeat (louder the worse it gets, k 0..1) */
+export function heartbeat(k = 1) {
+  if (!ready() || !gate('heart', 500)) return; const b = bus(0.7 + 0.5 * k, 0, 0.1);
+  thump(b, { dur: 0.16, peak: 0.85, f: 52, drop: 1.6 }); thump(b, { t: 0.2, dur: 0.14, peak: 0.55, f: 46, drop: 1.5 });
+}
+/** coming back into the arena: a rising shimmer */
+export function spawn() {
+  if (!ready()) return; const b = bus(0.55, 0, 0.45);
+  tn(b, { dur: 0.5, peak: 0.16, type: 'sine', f0: 240, f1: 960 }); nz(b, { atk: 0.25, dur: 0.35, peak: 0.12, type: 'bandpass', f0: 500, f1: 4200, q: 1.2 });
+  ring(b, { t: 0.3, dur: 0.35, peak: 0.1, f: 1760, type: 'triangle' }); ring(b, { t: 0.34, dur: 0.4, peak: 0.07, f: 2637, type: 'sine' });
+}
+/** health: a soft warm bell */
+export function health() {
+  if (!ready()) return; const b = bus(0.7, 0, 0.35);
+  ring(b, { dur: 0.35, peak: 0.28, f: 784 }); ring(b, { t: 0.09, dur: 0.45, peak: 0.26, f: 1175 }); ring(b, { t: 0.09, dur: 0.3, peak: 0.07, f: 2349, type: 'triangle' });
+}
+/** armour: a heavy metallic clank */
+export function armor() {
+  if (!ready()) return; const b = bus(0.8, 0, 0.25);
+  thump(b, { dur: 0.12, peak: 0.5, f: 110, drop: 1.4 }); ring(b, { dur: 0.22, peak: 0.2, f: 520, type: 'square' }); ring(b, { dur: 0.3, peak: 0.12, f: 1180, type: 'triangle' });
+  nz(b, { dur: 0.05, peak: 0.2, type: 'bandpass', f0: 3200, f1: 1800, q: 1.2 });
+}
+/** a weapon or ammo: a mechanical ka-chunk */
+export function weapon() {
+  if (!ready()) return; const b = bus(0.8, 0, 0.2);
+  nz(b, { dur: 0.025, peak: 0.28, type: 'highpass', f0: 2400, f1: 1800, grit: true }); thump(b, { dur: 0.1, peak: 0.5, f: 130, drop: 1.4 }); ring(b, { dur: 0.06, peak: 0.12, f: 3300 });
+  nz(b, { t: 0.09, dur: 0.03, peak: 0.3, type: 'highpass', f0: 2000, f1: 1500, grit: true }); thump(b, { t: 0.09, dur: 0.12, peak: 0.6, f: 95, drop: 1.5 }); ring(b, { t: 0.1, dur: 0.18, peak: 0.1, f: 2100, type: 'triangle' });
+}
+/** countdown beep (the last one is higher and longer) */
+export function tick(last = false) {
+  if (!ready()) return; const b = bus(0.7, 0, 0.25);
+  ring(b, { dur: last ? 0.5 : 0.14, peak: last ? 0.3 : 0.22, f: last ? 1320 : 880, type: 'triangle' }); if (last) ring(b, { dur: 0.4, peak: 0.1, f: 1980 });
+}
 export function pickup() { if (!ready()) return; const b = bus(0.8, 0, 0.25); tn(b, { dur: 0.09, peak: 0.28, type: 'sine', f0: 660, f1: 990 }); tn(b, { t: 0.07, dur: 0.14, peak: 0.26, type: 'sine', f0: 990, f1: 1320 }); }
 export function jumpPad() { if (!ready()) return; const b = bus(0.55, 0, 0.3); tn(b, { dur: 0.32, peak: 0.28, type: 'sine', f0: 200, f1: 900 }); nz(b, { atk: 0.05, dur: 0.3, peak: 0.2, type: 'bandpass', f0: 600, f1: 3000, q: 1 }); }
-export function teleport() { if (!ready()) return; const b = bus(0.6, 0, 0.5); tn(b, { dur: 0.4, peak: 0.3, type: 'sine', f0: 280, f1: 1500 }); tn(b, { t: 0.05, dur: 0.45, peak: 0.16, type: 'triangle', f0: 1900, f1: 420 }); nz(b, { dur: 0.35, peak: 0.2, type: 'bandpass', f0: 4200, f1: 800, q: 2 }); }
+export function teleport() {
+  if (!ready()) return; const b = bus(0.75, 0, 0.55, 0.15);
+  tn(b, { dur: 0.35, peak: 0.28, type: 'sine', f0: 180, f1: 1800 }); tn(b, { t: 0.04, dur: 0.4, peak: 0.12, type: 'sawtooth', f0: 3000, f1: 380 });
+  nz(b, { atk: 0.12, dur: 0.4, peak: 0.3, type: 'bandpass', f0: 300, f1: 6000, q: 1.4, am: 38 });                         // crackling electric swell
+  thump(b, { t: 0.28, dur: 0.3, peak: 0.7, f: 58, drop: 2 });                                                          // the thud of arriving
+  for (let i = 0; i < 4; i++) ring(b, { t: 0.18 + i * 0.07, dur: 0.3, peak: 0.07, f: [2093, 2637, 3136, 3951][i], type: 'sine' });   // sparkle tail
+}
 export function powerup() { if (!ready()) return; const b = bus(0.6, 0, 0.4); tn(b, { dur: 0.12, peak: 0.28, type: 'square', f0: 440, f1: 880 }); tn(b, { t: 0.1, dur: 0.14, peak: 0.28, type: 'square', f0: 660, f1: 1320 }); tn(b, { t: 0.2, dur: 0.34, peak: 0.26, type: 'triangle', f0: 880, f1: 1760 }); }
 export function died() { if (!ready()) return; const b = bus(0.7, 0, 0.5); tn(b, { dur: 0.7, peak: 0.4, type: 'sawtooth', f0: 320, f1: 48 }); nz(b, { dur: 0.5, peak: 0.3, type: 'lowpass', f0: 1500, f1: 90 }); }
 

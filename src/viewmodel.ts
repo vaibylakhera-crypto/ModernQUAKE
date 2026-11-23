@@ -115,6 +115,8 @@ export class Viewmodel {
   fp: FpArms; private procHands: THREE.Object3D[] = [];
   get armsReady() { return this.fp.ready; }
   /** red / blue arms in team modes */
+  /** hide / show the whole first-person weapon (the death cam hides it) */
+  setVisible(v: boolean) { this.root.visible = v; }
   setTeam(team: number) { this.fp.init(team).then(() => { for (const o of this.procHands) o.visible = false; }); }
 
   constructor() {

@@ -17,6 +17,7 @@ export const PM = {
   eyeCrouch: 0.95,
   crouchScale: 0.35,
   voidY: -45,
+  step: 0.5,           // m: ledges up to this height are walked up without jumping (Quake's 18 units)
   jumpBuffer: 0.1,     // s: press just before landing still counts (still one press per hop)
 };
 
@@ -41,6 +42,11 @@ export class Player {
   /** set when a teleporter fires: the game turns the view to `yaw` and plays the effect */
   teleported: { yaw: number; from: [number, number, number]; to: [number, number, number] } | null = null;
   private tpCooldown = 0;
+  /** spawn protection: seconds left in which damage is ignored */
+  invuln = 0;
+  /** events for the game's sounds: counters go up on every jump; landSpeed holds the speed of the last touch-down until read */
+  jumps = 0; landSpeed = 0;
+  private wasGrounded = false;
 
   constructor(private boxes: Box[]) { this.respawn(); }
 
@@ -48,8 +54,15 @@ export class Player {
   get eye() { return this.crouched ? PM.eyeCrouch : PM.eyeStand; }
   get speedXZ() { return Math.hypot(this.vx, this.vz); }
 
-  respawn() {
-    const s = spawns[this.spawnIdx++ % spawns.length];
+  /** come back at the spawn point farthest from every enemy (`enemies` = their x,z); with nobody about, take them in turn */
+  respawn(enemies: [number, number][] = []) {
+    let s = spawns[this.spawnIdx++ % spawns.length];
+    if (enemies.length) {
+      const score = (sp: { pos: [number, number, number] }) => Math.min(...enemies.map(e => Math.hypot(e[0] - sp.pos[0], e[1] - sp.pos[2])));
+      const ranked = [...spawns].sort((a, b) => score(b) - score(a));
+      s = ranked[Math.floor(Math.random() * Math.min(2, ranked.length))];             // one of the two safest, so it is not predictable
+    }
+    this.invuln = 2; this.landSpeed = 0; this.wasGrounded = false;
     [this.x, this.y, this.z] = s.pos;
     this.yaw = s.yaw; this.pitch = 0;
     this.vx = this.vy = this.vz = 0;
@@ -59,6 +72,7 @@ export class Player {
 
   /** Q3 rules: armour soaks two thirds of incoming damage while it lasts. Returns true if this killed the player. */
   takeDamage(amount: number): boolean {
+    if (this.invuln > 0 || this.health <= 0) return false;
     const soak = Math.min(this.armor, amount * (2 / 3));
     this.armor -= soak; this.health -= amount - soak; this.hurtT = 0.25;
     return this.health <= 0;
@@ -103,7 +117,7 @@ export class Player {
     // jump: needs a fresh press (buffered). Jumping skips ground friction -> bunny hop keeps speed.
     let jumped = false;
     if (this.grounded && this.jumpBuf > 0) {
-      this.vy = PM.jumpV * this.jumpMul; this.grounded = false; this.jumpBuf = 0; jumped = true;
+      this.vy = PM.jumpV * this.jumpMul; this.grounded = false; this.jumpBuf = 0; jumped = true; this.jumps++;
     }
 
     if (this.grounded && !jumped) {
@@ -125,7 +139,11 @@ export class Player {
       this.vy -= GRAVITY * dt;
     }
 
+    if (this.invuln > 0) this.invuln = Math.max(0, this.invuln - dt);
+    const vyIn = this.vy;
     this.move(dt);
+    if (this.grounded && !this.wasGrounded && vyIn < -3) this.landSpeed = -vyIn;      // touched down
+    this.wasGrounded = this.grounded;
     this.checkPads(dt);
     this.checkTeleporters(dt);
     if (this.y < PM.voidY) { if (this.onVoid) this.onVoid(); else this.respawn(); }
@@ -136,11 +154,11 @@ export class Player {
     // X
     this.x += this.vx * dt;
     let b = this.overlaps(this.x, this.y, this.z, h);
-    if (b) { this.x = this.vx > 0 ? b.min[0] - hw - e : b.max[0] + hw + e; this.vx = 0; }
+    if (b && !this.stepUp(b)) { this.x = this.vx > 0 ? b.min[0] - hw - e : b.max[0] + hw + e; this.vx = 0; }
     // Z
     this.z += this.vz * dt;
     b = this.overlaps(this.x, this.y, this.z, h);
-    if (b) { this.z = this.vz > 0 ? b.min[2] - hw - e : b.max[2] + hw + e; this.vz = 0; }
+    if (b && !this.stepUp(b)) { this.z = this.vz > 0 ? b.min[2] - hw - e : b.max[2] + hw + e; this.vz = 0; }
     // Y
     this.y += this.vy * dt;
     b = this.overlaps(this.x, this.y, this.z, h);
@@ -153,6 +171,14 @@ export class Player {
       if (this.grounded) this.vy = 0;
     } else this.grounded = false;
     if (this.vy > 0.1) this.grounded = false;
+  }
+
+  /** walking into a low ledge: climb it (only on the ground, only if there is headroom) instead of stopping dead */
+  private stepUp(b: Box): boolean {
+    const top = b.max[1], rise = top - this.y;
+    if (!this.grounded || rise <= 0 || rise > PM.step || this.vy > 0.5) return false;
+    if (this.overlaps(this.x, top + 1e-3, this.z, this.height)) return false;
+    this.y = top + 1e-3; return true;
   }
 
   private checkTeleporters(dt: number) {
