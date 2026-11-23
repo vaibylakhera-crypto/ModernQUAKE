@@ -30,4 +30,4 @@ Open the hosted URL (e.g. your Render link) on the phone, then:
 - **Android (Chrome):** ⋮ menu → *Add to Home screen* / *Install app*.
 
 Launching from the icon opens it fullscreen like an app. Everyone uses the same room code to play together.
-Test touch controls on desktop with `?touch=1`.
+Test touch controls on desktop with `?touch=1`. The default sky is black with stars; `?sky=nebula` brings back the painted space sky.

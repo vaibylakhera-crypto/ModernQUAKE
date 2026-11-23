@@ -32,6 +32,7 @@ export class TouchControls {
       <button class="tbtn tpause" data-b="pause">❚❚</button>`;
     document.body.appendChild(el);
     this.base = el.querySelector<HTMLDivElement>('.tstick')!; this.knob = this.base.querySelector<HTMLDivElement>('i')!;
+    this.home();
     const opt = { passive: false } as AddEventListenerOptions;
     el.addEventListener('touchstart', e => this.start(e), opt);
     el.addEventListener('touchmove', e => this.move(e), opt);
@@ -45,8 +46,14 @@ export class TouchControls {
   reset() {
     this.stickId = this.fireId = null; this.lookIds.clear();
     this.forward = this.side = 0; this.fire = false;
-    this.base.style.opacity = '0';
+    this.home();
     this.el.querySelectorAll('.tbtn.on').forEach(b => { if ((b as HTMLElement).dataset.b !== 'crouch' || !this.crouch) b.classList.remove('on'); });
+  }
+
+  /** park the stick in the bottom-left corner (always visible) */
+  private home() {
+    this.base.classList.remove('active'); this.knob.style.transform = 'translate(-50%,-50%)';
+    this.base.style.left = 'calc(110px + env(safe-area-inset-left))'; this.base.style.top = 'calc(100% - 110px - env(safe-area-inset-bottom))';
   }
 
   private start(e: TouchEvent) {
@@ -64,7 +71,7 @@ export class TouchControls {
       }
       if (t.clientX < innerWidth * 0.42 && this.stickId === null) {
         this.stickId = t.identifier; this.sx = t.clientX; this.sy = t.clientY;
-        this.base.style.left = `${t.clientX}px`; this.base.style.top = `${t.clientY}px`; this.base.style.opacity = '1';
+        this.base.style.left = `${t.clientX}px`; this.base.style.top = `${t.clientY}px`; this.base.classList.add('active');
         this.knob.style.transform = 'translate(-50%,-50%)';
       } else {
         this.lookIds.set(t.identifier, { x: t.clientX, y: t.clientY });
@@ -96,7 +103,7 @@ export class TouchControls {
   private end(e: TouchEvent) {
     e.preventDefault();
     for (const t of Array.from(e.changedTouches)) {
-      if (t.identifier === this.stickId) { this.stickId = null; this.forward = this.side = 0; this.base.style.opacity = '0'; }
+      if (t.identifier === this.stickId) { this.stickId = null; this.forward = this.side = 0; this.home(); }
       if (t.identifier === this.fireId) { this.fireId = null; this.fire = false; this.el.querySelector('.tfire')!.classList.remove('on'); }
       this.lookIds.delete(t.identifier);
     }

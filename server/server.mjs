@@ -3,22 +3,48 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import zlib from 'node:zlib';
 import { WebSocketServer } from 'ws';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'dist');
 const PORT = Number(process.env.PORT) || 8080;
 const MAX = 8;
-const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.gltf': 'model/gltf+json', '.bin': 'application/octet-stream', '.png': 'image/png', '.jpg': 'image/jpeg', '.svg': 'image/svg+xml', '.txt': 'text/plain', '.woff2': 'font/woff2', '.webmanifest': 'application/manifest+json', '.ico': 'image/x-icon' };
+const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.gltf': 'model/gltf+json', '.bin': 'application/octet-stream', '.png': 'image/png', '.jpg': 'image/jpeg', '.svg': 'image/svg+xml', '.txt': 'text/plain', '.woff2': 'font/woff2', '.webmanifest': 'application/manifest+json', '.webp': 'image/webp', '.ico': 'image/x-icon' };
 const COLORS = [0xff4a3a, 0x35d0ff, 0xffb02e, 0xff2fa0, 0x7dff6a, 0xb08cff, 0x2effd0, 0xffffff];
 
+// Static files: ETag + 304 so phones only download each file once, gzip for text/geometry, long caching for assets.
+const GZ = new Set(['.html', '.js', '.css', '.json', '.gltf', '.bin', '.svg', '.txt', '.webmanifest']);
+const memo = new Map();   // path -> { mtime, etag, raw, gz }
+function cacheFor(p) {
+  if (p.startsWith('/assets/')) return 'public, max-age=31536000, immutable';           // vite output: hashed names
+  if (/^\/(kit|chars|tex-lo)\//.test(p) || /\.(png|webp)$/.test(p)) return 'public, max-age=604800, stale-while-revalidate=86400';
+  return 'no-cache';                                                                     // index.html, manifest: always revalidate (cheap 304)
+}
 const server = http.createServer((req, res) => {
   let p = decodeURIComponent((req.url || '/').split('?')[0]); if (p === '/') p = '/index.html';
   const f = path.normalize(path.join(root, p));
   if (!f.startsWith(root)) { res.writeHead(403).end(); return; }
-  fs.readFile(f, (err, data) => {
-    if (err) { res.writeHead(404).end('not found'); return; }
-    res.writeHead(200, { 'Content-Type': MIME[path.extname(f)] || 'application/octet-stream', 'Cache-Control': f.includes('/assets/') ? 'public,max-age=31536000' : 'no-cache' });
-    res.end(data);
+  fs.stat(f, (err, st) => {
+    if (err || !st.isFile()) { res.writeHead(404).end('not found'); return; }
+    const etag = `"${st.size.toString(36)}-${st.mtimeMs.toString(36)}"`;
+    const ext = path.extname(f);
+    const head = { 'Content-Type': MIME[ext] || 'application/octet-stream', 'Cache-Control': cacheFor(p), ETag: etag, Vary: 'Accept-Encoding' };
+    if (req.headers['if-none-match'] === etag) { res.writeHead(304, head).end(); return; }
+    const gzipOk = GZ.has(ext) && /\bgzip\b/.test(req.headers['accept-encoding'] || '');
+    const m = memo.get(f);
+    const serve = e => {
+      const body = gzipOk && e.gz ? e.gz : e.raw;
+      if (body === e.gz) head['Content-Encoding'] = 'gzip';
+      head['Content-Length'] = body.length; res.writeHead(200, head); res.end(req.method === 'HEAD' ? undefined : body);
+    };
+    if (m && m.etag === etag) { serve(m); return; }
+    fs.readFile(f, (err2, raw) => {
+      if (err2) { res.writeHead(404).end('not found'); return; }
+      const e = { etag, raw, gz: GZ.has(ext) && raw.length > 1024 ? zlib.gzipSync(raw, { level: 9 }) : null };
+      if (e.gz && e.gz.length >= raw.length) e.gz = null;
+      if (raw.length < 8e6) memo.set(f, e);
+      serve(e);
+    });
   });
 });
 

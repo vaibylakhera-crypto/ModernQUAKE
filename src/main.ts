@@ -18,11 +18,19 @@ import { buildSurround } from './surround';
 import { Net, RemotePlayer, PlayerInfo } from './net';
 import { WEAPON_ORDER, WEAPON_DEFS } from './weapons';
 import { TouchControls, isTouch as touchDevice, goFullscreen } from './touch';
+import { setupAssets } from './assets';
 
 const Q = getQuality();
 const MAP = new URLSearchParams(location.search).get('map') === 'void' ? 'void' : 'boreal';
 const SKYP = SKY_PRESETS[MAP];
 kitOptions.cheap = !Q.pbr;
+{ const bar = document.getElementById('loadbar'), txt = document.getElementById('loadtxt');
+  setupAssets({ cheap: !Q.pbr, lowTex: Q.tier === 'low', onProgress(done, total) {
+    const f = total ? done / total : 1;
+    if (bar) bar.style.width = `${Math.round(f * 100)}%`;
+    if (txt) txt.textContent = f >= 1 ? 'READY' : `LOADING ${Math.round(f * 100)}%`;
+    if (f >= 1) setTimeout(() => document.getElementById('loading')?.classList.add('done'), 400);
+  } }); }
 
 const renderer = new THREE.WebGLRenderer({ antialias: Q.antialias, powerPreference: 'high-performance', stencil: false });
 let renderScale = Q.renderScale;
@@ -39,7 +47,15 @@ camera.rotation.order = 'YXZ';
 
 // sky: live shader on high, baked once to a cubemap on low/med (no per-frame noise cost)
 const sky = new Sky(MAP);
-if (Q.liveSky) scene.add(sky.mesh);
+// default sky: pure black + crisp stars (cheap, sharp on any screen). ?sky=nebula brings back the painted space sky.
+const PLAIN_SKY = new URLSearchParams(location.search).get('sky') !== 'nebula';
+if (PLAIN_SKY) {
+  scene.background = new THREE.Color(0x000000);
+  if (Q.pbr) {                                               // PBR tiers still want something to reflect
+    const pm = new THREE.PMREMGenerator(renderer); const sk = new THREE.Scene(); sk.add(new Sky(MAP).mesh);
+    scene.environment = pm.fromScene(sk, 0, 0.1, 1000).texture; scene.environmentIntensity = 1.6;
+  }
+} else if (Q.liveSky) scene.add(sky.mesh);
 else {
   const rt = new THREE.WebGLCubeRenderTarget(Q.skyCube, { generateMipmaps: false, minFilter: THREE.LinearFilter });
   const skyScene = new THREE.Scene(); skyScene.add(sky.mesh);
@@ -51,17 +67,17 @@ else {
     scene.environment = pm.fromCubemap(rt.texture).texture; scene.environmentIntensity = 1.6;
   }
 }
-if (Q.liveSky) {                                             // high: reflections from the live sky shader
+if (Q.liveSky && !PLAIN_SKY) {                               // high: reflections from the live sky shader
   const pm = new THREE.PMREMGenerator(renderer);
   const skyScene = new THREE.Scene(); skyScene.add(new Sky(MAP).mesh);
   scene.environment = pm.fromScene(skyScene, 0, 0.1, 1000).texture; scene.environmentIntensity = 1.6;
 }
 
-const stars = new Stars(sky.bandN, SKYP.stars);
+const stars = PLAIN_SKY ? new Stars(sky.bandN, 2600, true) : new Stars(sky.bandN, SKYP.stars);
 scene.add(stars.mesh);
 scene.fog = new THREE.FogExp2(0x05070f, 0.0025);   // depth cue: far platforms sink into the void
 
-const surround = buildSurround(); if (MAP === 'boreal') scene.add(surround.group);
+const surround = buildSurround(); if (MAP === 'boreal' && !PLAIN_SKY) scene.add(surround.group);
 const world = new World(Q);
 scene.add(world.group);
 world.build();
@@ -87,14 +103,17 @@ addEventListener('resize', () => {
 });
 
 // adaptive resolution: keep >= ~55 fps by trading render scale (weak GPUs); recovers when there is headroom
-let frames = 0, accMs = 0;
+let frames = 0, accMs = 0, goodSecs = 0;
 function adapt(ms: number) {
   accMs += ms; frames++;
   if (accMs < 1000) return;
   const avg = accMs / frames; frames = 0; accMs = 0;
   const med = document.getElementById('medal'); if (med) med.textContent = `FFA · PRACTICE   |   ${Math.round(1000 / avg)} FPS · ${Q.tier.toUpperCase()} · RES ${Math.round(renderScale * 100)}%`;
-  if (avg > 18.5 && renderScale > Q.minScale) { renderScale = Math.max(Q.minScale, renderScale - 0.08); applyRes(); }
-  else if (avg < 12.5 && renderScale < Q.renderScale) { renderScale = Math.min(Q.renderScale, renderScale + 0.04); applyRes(); }
+  if (avg > 18.5 && renderScale > Q.minScale) { renderScale = Math.max(Q.minScale, renderScale - 0.08); applyRes(); goodSecs = 0; }
+  else if (avg < (TOUCH ? 17.4 : 12.5) && renderScale < Q.renderScale) {
+    // phones are capped at 60 fps, so "fast" means holding the cap; climb back slowly after 3 steady seconds
+    if (!TOUCH || ++goodSecs >= 3) { renderScale = Math.min(Q.renderScale, renderScale + 0.04); applyRes(); goodSecs = 0; }
+  } else goodSecs = 0;
 }
 
 // ---- input ----
@@ -304,6 +323,8 @@ function doFire(id: Parameters<typeof combat.fire>[0]) {
 const DT = 1 / 120;
 let acc = 0, last = performance.now();
 function frame(now: number) {
+  // phones: cap at ~60 fps. 90/120 Hz screens otherwise double the GPU work, the phone heats up and throttles into stutter.
+  if (TOUCH && now - last < 15.5) { requestAnimationFrame(frame); return; }
   const frameMs = now - last;
   acc += Math.min(0.1, frameMs / 1000); last = now;
   while (acc >= DT) {
@@ -335,8 +356,8 @@ function frame(now: number) {
     net.sendState(bdt, { p: [player.x, player.y, player.z], yaw, pitch, w: vm.current, hp: player.health, dead: false }); }
   if (!(window as any).__freeze) combat.update(Math.min(0.05, frameMs / 1000));
   stars.update(camera, renderer.getPixelRatio());
-  if (!Q.liveSky) { const a = now / 1000 * 0.004; scene.backgroundRotation.y = a; stars.mesh.rotation.y = a; }
-  if (Q.liveSky) sky.update(now / 1000, camera);
+  if (!Q.liveSky || PLAIN_SKY) { const a = now / 1000 * 0.004; scene.backgroundRotation.y = a; stars.mesh.rotation.y = a; }
+  if (Q.liveSky && !PLAIN_SKY) sky.update(now / 1000, camera);
   world.update(now / 1000); surround.update(now / 1000);
   hud();
   if (composer) composer.render(); else renderer.render(scene, camera);

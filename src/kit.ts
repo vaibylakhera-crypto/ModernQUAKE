@@ -32,7 +32,7 @@ export function loadPiece(name: string): Promise<THREE.Group> {
           m.castShadow = false; m.receiveShadow = false;
           if (kitOptions.cheap) {
             m.material = Array.isArray(m.material) ? m.material.map(x => cheapMaterial(x as THREE.MeshStandardMaterial)) : cheapMaterial(m.material as THREE.MeshStandardMaterial);
-            const tex = (m.material as THREE.MeshLambertMaterial).map; if (tex) tex.anisotropy = 2;
+            const tex = (m.material as THREE.MeshLambertMaterial).map; if (tex) tex.anisotropy = 4;
           } else {
             const mats = Array.isArray(m.material) ? m.material : [m.material];
             for (const mat of mats as THREE.MeshStandardMaterial[]) { if (mat.map) mat.map.anisotropy = 8; mat.envMapIntensity = 1.0; }
