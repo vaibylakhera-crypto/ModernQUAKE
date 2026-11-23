@@ -5,7 +5,8 @@ import { Pad, BounceTier, jumpPadVelocity } from './level';
 // Quake-style launch pads: bevelled metal housing, animated glowing plate, soft light column, rising motes.
 // Jump pads show chevrons pointing along the launch direction; bounce pads show pulsing rings (1/2/3 = small/medium/mega).
 
-const COLORS: Record<string, number> = { small: 0x3dff7a, medium: 0xffb02e, mega: 0xff2fa0, jump: 0x2fd8ff };
+// muted, warm signal colours (readable, not neon)
+const COLORS: Record<string, number> = { small: 0x8ac05a, medium: 0xd89a3a, mega: 0xc8402e, jump: 0xe0782a };
 const COLUMN_H: Record<string, number> = { small: 3.2, medium: 5.5, mega: 9, jump: 6.5 };
 const RINGS: Record<BounceTier, number> = { small: 1.2, medium: 2.2, mega: 3.4 };
 

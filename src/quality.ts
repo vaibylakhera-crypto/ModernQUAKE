@@ -16,8 +16,8 @@ export interface Quality {
 }
 
 const TIERS: Record<Tier, Quality> = {
-  low:  { tier: 'low',  antialias: false, pixelRatio: 1,   renderScale: 0.85, minScale: 0.5, bloom: false, pbr: false, liveSky: false, skyCube: 1024,  platformLights: false, padBeams: true },
-  med:  { tier: 'med',  antialias: false, pixelRatio: 1,   renderScale: 1.0,  minScale: 0.6, bloom: false, pbr: true,  liveSky: false, skyCube: 1024, platformLights: false, padBeams: true },
+  low:  { tier: 'low',  antialias: false, pixelRatio: 1,   renderScale: 0.85, minScale: 0.5, bloom: false, pbr: false, liveSky: false, skyCube: 1024,  platformLights: false, padBeams: false },
+  med:  { tier: 'med',  antialias: false, pixelRatio: 1,   renderScale: 1.0,  minScale: 0.6, bloom: false, pbr: true,  liveSky: false, skyCube: 1024, platformLights: false, padBeams: false },
   high: { tier: 'high', antialias: true,  pixelRatio: 2,   renderScale: 1.0,  minScale: 0.75, bloom: true,  pbr: true,  liveSky: false, skyCube: 2048, platformLights: true,  padBeams: true },
 };
 

@@ -5,6 +5,7 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { Sky, Stars, SKY_PRESETS } from './sky';
 import { World } from './world';
+import { Arena } from './arena';
 import { kitOptions } from './kit';
 import { getQuality } from './quality';
 import { Player, PM, Input } from './player';
@@ -25,6 +26,8 @@ import { WeaponId } from './weapons';
 const Q = getQuality();
 const MAP = new URLSearchParams(location.search).get('map') === 'void' ? 'void' : 'boreal';
 const SKYP = SKY_PRESETS[MAP];
+// default look: dark alien fortress (original procedural textures). ?style=kit = the older bright sci-fi kit
+const STYLE = new URLSearchParams(location.search).get('style') === 'kit' ? 'kit' : 'alien';
 kitOptions.cheap = !Q.pbr;
 { const bar = document.getElementById('loadbar'), txt = document.getElementById('loadtxt');
   setupAssets({ cheap: !Q.pbr, lowTex: Q.tier === 'low', onProgress(done, total) {
@@ -77,19 +80,25 @@ if (Q.liveSky && !PLAIN_SKY) {                               // high: reflection
 
 const stars = PLAIN_SKY ? new Stars(sky.bandN, 2600, true) : new Stars(sky.bandN, SKYP.stars);
 scene.add(stars.mesh);
-scene.fog = new THREE.FogExp2(0x05070f, 0.0025);   // depth cue: far platforms sink into the void
+scene.fog = STYLE === 'kit' ? new THREE.FogExp2(0x05070f, 0.0025) : new THREE.FogExp2(0x060405, 0.0075);   // depth cue: far platforms sink into the void
 
 const surround = buildSurround(); if (MAP === 'boreal' && !PLAIN_SKY) scene.add(surround.group);
-const world = new World(Q);
+const world = STYLE === 'kit' ? new World(Q) : new Arena(Q);
 scene.add(world.group);
 world.build();
 
 // lighting: aurora-tinted fill + planet key light (cheap: 1 hemisphere + 2 directional, no shadows)
-scene.add(new THREE.HemisphereLight(0x8fdcff, 0x3a2a78, Q.pbr ? 1.4 : 2.6));
-scene.add(new THREE.AmbientLight(0x6070a0, Q.pbr ? 0.2 : 0.7));
-const key = new THREE.DirectionalLight(0xffe2c0, Q.pbr ? 3.2 : 2.4);
+if (STYLE === 'kit') {
+  scene.add(new THREE.HemisphereLight(0x8fdcff, 0x3a2a78, Q.pbr ? 1.4 : 2.6));
+  scene.add(new THREE.AmbientLight(0x6070a0, Q.pbr ? 0.2 : 0.7));
+} else {
+  // alien fortress: dim, warm from above, near-black from below, faint sickly-green bounce
+  scene.add(new THREE.HemisphereLight(0xd8c4a8, 0x141016, Q.pbr ? 1.2 : 2.0));
+  scene.add(new THREE.AmbientLight(0x3a4a40, Q.pbr ? 0.25 : 0.6));
+}
+const key = new THREE.DirectionalLight(STYLE === 'kit' ? 0xffe2c0 : 0xffc890, Q.pbr ? 3.2 : 2.4);
 key.position.copy(sky.sunDir).multiplyScalar(100); scene.add(key);
-const rim = new THREE.DirectionalLight(0x7a8cff, Q.pbr ? 1.6 : 1.1); rim.position.set(-40, 20, 60); scene.add(rim);
+const rim = new THREE.DirectionalLight(STYLE === 'kit' ? 0x7a8cff : 0x5a6a90, Q.pbr ? 1.6 : 1.0); rim.position.set(-40, 20, 60); scene.add(rim);
 
 let composer: EffectComposer | null = null;
 if (Q.bloom) {
