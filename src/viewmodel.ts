@@ -114,6 +114,8 @@ export class Viewmodel {
   onSwitch?: (id: WeaponId) => void;
   fp: FpArms; private procHands: THREE.Object3D[] = [];
   get armsReady() { return this.fp.ready; }
+  /** red / blue arms in team modes */
+  setTeam(team: number) { this.fp.init(team).then(() => { for (const o of this.procHands) o.visible = false; }); }
 
   constructor() {
     this.scene.add(new THREE.HemisphereLight(0xcfe8ff, 0x4a3a8a, 2.4));

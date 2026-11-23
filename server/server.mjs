@@ -50,64 +50,117 @@ const server = http.createServer((req, res) => {
 });
 
 // ───────────── rooms, lobby, matches ─────────────
-// room: { code, players: Map<id,{ws,name,color,frags,deaths}>, bots: Map<id,{name,color,weapon,frags,deaths}>, host, cfg, state, endsAt }
-//  state: 'lobby' (warmup, scores not counted) -> 'playing' (host pressed START) -> 'ended' (results) -> back to 'lobby'
+// room: { code, players: Map<id,{ws,name,color,team,frags,deaths,p}>, bots: Map<id,{name,color,team,weapon,frags,deaths}>, host, cfg, state, endsAt,
+//         ts: {1,2} team scores (TDM frags / CTF captures), flags: {1,2} (CTF) }
+//  state: 'lobby' (warmup) -> 'playing' (host pressed START) -> 'ended' (results) -> back to 'lobby'
+//  team ids: 0 = none (free-for-all), 1 = RED, 2 = BLUE
 const rooms = new Map();
 let nextId = 1, nextBot = 1000;
-const MAPS = new Set(['boreal', 'void', 'spire', 'bastion', 'foundry', 'crypt', 'ring']);
+const MAPS = new Set(['boreal', 'void', 'spire', 'bastion', 'foundry', 'crypt', 'ring', 'tower']);
+const CTF_MAPS = new Set(['spire', 'bastion', 'foundry', 'crypt', 'ring', 'tower']);     // maps that have flag bases
+const MODES = new Set(['ffa', 'tdm', 'ctf']);
 const BOT_POOL = [
   { name: 'RAZOR', weapon: 'plasma' }, { name: 'VEX', weapon: 'plasma' }, { name: 'KRAIT', weapon: 'rocket' }, { name: 'NYX', weapon: 'nailer' },
   { name: 'ONYX', weapon: 'plasma' }, { name: 'HEX', weapon: 'rocket' }, { name: 'MORROW', weapon: 'nailer' }, { name: 'ZOLA', weapon: 'plasma' },
 ];
 const MAX_BOTS = 7;
+const FLAG_RETURN_MS = 20000;
 const clampInt = (v, lo, hi, d) => { const n = Math.round(Number(v)); return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : d; };
-function cleanCfg(c, prev = { map: 'boreal', bots: 3, skill: 1, frag: 20, time: 10, open: true }) {
+const DEF_CFG = { map: 'boreal', mode: 'ffa', bots: 3, skill: 1, frag: 20, caps: 3, time: 10, open: true };
+function cleanCfg(c, prev = DEF_CFG) {
   c = c && typeof c === 'object' ? c : {};
+  const map = MAPS.has(c.map) ? c.map : prev.map;
+  let mode = MODES.has(c.mode) ? c.mode : prev.mode;
+  if (mode === 'ctf' && !CTF_MAPS.has(map)) mode = 'tdm';                  // that map has no flag bases
   return {
-    map: MAPS.has(c.map) ? c.map : prev.map,
+    map, mode,
     bots: clampInt(c.bots ?? prev.bots, 0, MAX_BOTS, prev.bots),
-    skill: clampInt(c.skill ?? prev.skill, 0, 2, prev.skill),        // 0 easy, 1 normal, 2 hard
-    frag: clampInt(c.frag ?? prev.frag, 0, 100, prev.frag),           // 0 = no frag limit
-    time: clampInt(c.time ?? prev.time, 0, 60, prev.time),            // minutes, 0 = no time limit
-    open: c.open === undefined ? prev.open : !!c.open,                // listed in OPEN GAMES
+    skill: clampInt(c.skill ?? prev.skill, 0, 2, prev.skill),               // 0 easy, 1 normal, 2 hard
+    frag: clampInt(c.frag ?? prev.frag, 0, 100, prev.frag),                  // 0 = no frag limit (DM: player frags, TDM: team frags)
+    caps: clampInt(c.caps ?? prev.caps, 1, 10, prev.caps),                   // CTF capture limit
+    time: clampInt(c.time ?? prev.time, 0, 60, prev.time),                   // minutes, 0 = no time limit
+    open: c.open === undefined ? prev.open : !!c.open,                       // listed in OPEN GAMES
   };
 }
 
-const wss = new WebSocketServer({ server, path: '/ws', maxPayload: 8192 });
+const wss = new WebSocketServer({ server, path: '/ws', maxPayload: 16384 });
 const send = (ws, o) => { if (ws.readyState === 1) ws.send(JSON.stringify(o)); };
 const board = room => [
-  ...[...room.players.entries()].map(([id, p]) => ({ id, name: p.name, color: p.color, frags: p.frags, deaths: p.deaths })),
-  ...[...room.bots.entries()].map(([id, b]) => ({ id, name: b.name, color: b.color, frags: b.frags, deaths: b.deaths, bot: true, weapon: b.weapon })),
+  ...[...room.players.entries()].map(([id, p]) => ({ id, name: p.name, color: p.color, team: p.team, frags: p.frags, deaths: p.deaths })),
+  ...[...room.bots.entries()].map(([id, b]) => ({ id, name: b.name, color: b.color, team: b.team, frags: b.frags, deaths: b.deaths, bot: true, weapon: b.weapon })),
 ];
 const bcast = (room, o, except) => { const s = JSON.stringify(o); for (const [id, p] of room.players) if (id !== except && p.ws.readyState === 1) p.ws.send(s); };
+const bcastTeam = (room, team, o) => { const s = JSON.stringify(o); for (const p of room.players.values()) if ((!team || p.team === team) && p.ws.readyState === 1) p.ws.send(s); };
 const usedColors = room => new Set([...room.players.values(), ...room.bots.values()].map(p => p.color));
 const pickColor = (room, id) => COLORS.find(c => !usedColors(room).has(c)) ?? COLORS[id % COLORS.length];
-const roomInfo = room => ({ room: room.code, host: room.host, cfg: room.cfg, state: room.state, endsAt: room.endsAt, now: Date.now(), players: board(room) });
+const teamMode = room => room.cfg.mode !== 'ffa';
+const flagView = room => ({ 1: { s: room.flags[1].s, c: room.flags[1].c, p: room.flags[1].p }, 2: { s: room.flags[2].s, c: room.flags[2].c, p: room.flags[2].p } });
+const roomInfo = room => ({ room: room.code, host: room.host, cfg: room.cfg, state: room.state, endsAt: room.endsAt, now: Date.now(), players: board(room), ts: room.ts, flags: flagView(room) });
+const everyone = room => [...room.players.values(), ...room.bots.values()];
 
-/** add/remove bots until the room has cfg.bots of them (humans + bots capped at MAX + MAX_BOTS) */
+/** teams: humans keep their pick (or go to the smaller side); bots always fill whichever side is smaller */
+function assignTeams(room) {
+  if (!teamMode(room)) { for (const p of everyone(room)) p.team = 0; return; }
+  const cnt = { 1: 0, 2: 0 };
+  for (const p of room.players.values()) if (p.team === 1 || p.team === 2) cnt[p.team]++;
+  for (const p of room.players.values()) if (p.team !== 1 && p.team !== 2) { const t = cnt[1] <= cnt[2] ? 1 : 2; p.team = t; cnt[t]++; }
+  for (const b of room.bots.values()) { const t = cnt[1] <= cnt[2] ? 1 : 2; b.team = t; cnt[t]++; }
+}
+/** add/remove bots until the room has cfg.bots of them */
 function syncBots(room) {
   while (room.bots.size > room.cfg.bots) { const last = [...room.bots.keys()].pop(); room.bots.delete(last); }
   const names = new Set([...room.bots.values()].map(b => b.name));
   for (const def of BOT_POOL) {
     if (room.bots.size >= room.cfg.bots) break;
     if (names.has(def.name)) continue;
-    const id = nextBot++; room.bots.set(id, { name: def.name, weapon: def.weapon, color: pickColor(room, id), frags: 0, deaths: 0 });
+    const id = nextBot++; room.bots.set(id, { name: def.name, weapon: def.weapon, color: pickColor(room, id), team: 0, frags: 0, deaths: 0 });
+  }
+  assignTeams(room);
+}
+const newFlags = () => ({ 1: { s: 'base', c: 0, p: null, t: null }, 2: { s: 'base', c: 0, p: null, t: null } });
+function clearFlags(room) { for (const f of [1, 2]) clearTimeout(room.flags[f].t); room.flags = newFlags(); }
+function resetScores(room) { for (const p of everyone(room)) { p.frags = 0; p.deaths = 0; } room.ts = { 1: 0, 2: 0 }; clearFlags(room); }
+function returnFlag(room, f, why, by = 0) {
+  const F = room.flags[f]; clearTimeout(F.t); F.s = 'base'; F.c = 0; F.p = null;
+  bcast(room, { t: 'flags', flags: flagView(room), ts: room.ts, ev: { k: 'return', f, why, by } });
+}
+/** a carrier died or left: the flag drops where they were last seen and returns by itself after a while */
+function dropFlagsOf(room, id) {
+  for (const f of [1, 2]) {
+    const F = room.flags[f]; if (F.s !== 'carried' || F.c !== id) continue;
+    const pl = room.players.get(id);
+    if (!pl || !pl.p) { returnFlag(room, f, 'lost'); continue; }
+    F.s = 'dropped'; F.c = 0; F.p = pl.p; F.t = setTimeout(() => returnFlag(room, f, 'timeout'), FLAG_RETURN_MS);
+    bcast(room, { t: 'flags', flags: flagView(room), ts: room.ts, ev: { k: 'drop', f, by: id } });
   }
 }
-function resetScores(room) { for (const p of [...room.players.values(), ...room.bots.values()]) { p.frags = 0; p.deaths = 0; } }
 function endMatch(room, why) {
   if (room.state !== 'playing') return;
   room.state = 'ended'; room.endsAt = 0;
   const b = board(room).sort((a, z) => z.frags - a.frags || a.deaths - z.deaths);
-  bcast(room, { t: 'end', why, board: b, winner: b[0] ? b[0].id : 0, next: 12 });
+  const winTeam = teamMode(room) ? (room.ts[1] > room.ts[2] ? 1 : room.ts[2] > room.ts[1] ? 2 : 0) : 0;
+  bcast(room, { t: 'end', why, board: b, winner: b[0] ? b[0].id : 0, team: winTeam, ts: room.ts, next: 12 });
   clearTimeout(room.endTimer);
   room.endTimer = setTimeout(() => { if (!rooms.has(room.code)) return; room.state = 'lobby'; resetScores(room); bcast(room, { t: 'lobby', ...roomInfo(room) }); }, 12000);
 }
-function checkFragLimit(room) {
-  if (room.state === 'playing' && room.cfg.frag > 0 && board(room).some(p => p.frags >= room.cfg.frag)) endMatch(room, 'frag');
+function checkLimits(room) {
+  if (room.state !== 'playing') return;
+  const m = room.cfg.mode, mx = Math.max(room.ts[1], room.ts[2]);
+  if (m === 'ffa') { if (room.cfg.frag > 0 && board(room).some(p => p.frags >= room.cfg.frag)) endMatch(room, 'frag'); }
+  else if (m === 'tdm') { if (room.cfg.frag > 0 && mx >= room.cfg.frag) endMatch(room, 'frag'); }
+  else if (mx >= room.cfg.caps) endMatch(room, 'caps');
 }
 setInterval(() => { for (const room of rooms.values()) if (room.state === 'playing' && room.endsAt && Date.now() >= room.endsAt) endMatch(room, 'time'); }, 500);
 const credit = (room, id) => room.players.get(id) || room.bots.get(id);
+const sameTeam = (a, b) => !!(a && b && a.team && a.team === b.team);
+/** a kill: no credit for team kills or suicides; TDM also scores the team */
+function scoreKill(room, killer, victim) {
+  victim.deaths++;
+  if (!killer || killer === victim) return;
+  if (sameTeam(killer, victim)) return;
+  killer.frags++; if (room.cfg.mode === 'tdm' && killer.team) room.ts[killer.team]++;
+}
+const okPos = p => Array.isArray(p) && p.length === 3 && p.every(v => Number.isFinite(v)) ? [p[0], p[1], p[2]] : null;
 
 wss.on('connection', (ws, req) => {
   const u = new URL(req.url, 'http://x');
@@ -117,24 +170,27 @@ wss.on('connection', (ws, req) => {
   if (!room) {
     let cfg = {}; try { cfg = JSON.parse(u.searchParams.get('cfg') || '{}'); } catch { /* defaults */ }
     if (!cfg.map) cfg.map = u.searchParams.get('map');
-    room = { code, players: new Map(), bots: new Map(), host: 0, cfg: cleanCfg(cfg), state: 'lobby', endsAt: 0, endTimer: null };
+    room = { code, players: new Map(), bots: new Map(), host: 0, cfg: cleanCfg(cfg), state: 'lobby', endsAt: 0, endTimer: null, ts: { 1: 0, 2: 0 }, flags: newFlags() };
     rooms.set(code, room); syncBots(room);
   }
   if (room.players.size >= MAX) { send(ws, { t: 'full' }); ws.close(); return; }
   const id = nextId++;
-  room.players.set(id, { ws, name, color: pickColor(room, id), frags: 0, deaths: 0 });
+  room.players.set(id, { ws, name, color: pickColor(room, id), team: 0, frags: 0, deaths: 0, p: null });
   if (!room.host || !room.players.has(room.host)) room.host = id;
+  assignTeams(room);
   send(ws, { t: 'welcome', id, ...roomInfo(room) });
   bcast(room, { t: 'join', player: board(room).find(p => p.id === id), host: room.host }, id);
+  if (teamMode(room)) bcast(room, { t: 'cfg', ...roomInfo(room) }, id);           // bots may have moved sides
   console.log(`[${code}] + ${name} (#${id}) — ${room.players.size} in room${room.host === id ? ' (host)' : ''}`);
 
-  let last = 0;
+  let last = 0, lastChat = 0;
   const isHost = () => room.host === id;
   ws.on('message', raw => {
     let m; try { m = JSON.parse(raw); } catch { return; }
     const me = room.players.get(id); if (!me || !m || typeof m !== 'object') return;
     switch (m.t) {
-      case 'state': { const n = Date.now(); if (n - last < 30) return; last = n; bcast(room, { t: 'state', id, p: m.p, yaw: m.yaw, pitch: m.pitch, w: m.w, hp: m.hp, dead: m.dead }, id); break; }
+      case 'ping': send(ws, { t: 'pong', c: m.c }); break;
+      case 'state': { const n = Date.now(); if (n - last < 20) return; last = n; me.p = okPos(m.p) || me.p; bcast(room, { t: 'state', id, p: m.p, yaw: m.yaw, pitch: m.pitch, w: m.w, hp: m.hp, dead: m.dead, v: m.v, n: m.n }, id); break; }
       case 'bots': if (isHost() && Array.isArray(m.l)) bcast(room, { t: 'bots', l: m.l.slice(0, MAX_BOTS) }, id); break;
       case 'fire': {
         const as = Number(m.as);                                   // the host fires on behalf of its bots
@@ -143,31 +199,39 @@ wss.on('connection', (ws, req) => {
       }
       case 'hit': {
         const to = Number(m.to), dmg = Math.min(150, Number(m.dmg) || 0);
-        const target = room.players.get(to);
-        if (target) send(target.ws, { t: 'hit', from: id, dmg, dir: m.dir, kind: m.kind });
-        else if (room.bots.has(to)) { const h = room.players.get(room.host); if (h) send(h.ws, { t: 'bothit', from: id, to, dmg, dir: m.dir, kind: m.kind }); }
+        const target = room.players.get(to) || room.bots.get(to);
+        if (!target || sameTeam(me, target)) break;                // friendly fire is off
+        if (room.players.has(to)) send(target.ws, { t: 'hit', from: id, dmg, dir: m.dir, kind: m.kind });
+        else { const h = room.players.get(room.host); if (h) send(h.ws, { t: 'bothit', from: id, to, dmg, dir: m.dir, kind: m.kind }); }
         break;
       }
       case 'dead': {                                                // a player died; by = killer (player or bot id)
         const by = Number(m.by) || 0, w = typeof m.w === 'string' && /^[a-z]{1,12}$/.test(m.w) ? m.w : '';
         if (room.state !== 'ended') {
-          if (room.state === 'playing') { me.deaths++; const k = credit(room, by); if (k && k !== me) k.frags++; else if (!k || k === me) me.frags = Math.max(0, me.frags - (by === id ? 1 : 0)); }
-          bcast(room, { t: 'killed', id, by, w, board: board(room) });
-          checkFragLimit(room);
+          dropFlagsOf(room, id);
+          if (room.state === 'playing') { const k = credit(room, by); scoreKill(room, k, me); if (!k && by === 0) { /* fell / self */ } if (by === id) me.frags = Math.max(0, me.frags - 1); }
+          bcast(room, { t: 'killed', id, by, w, board: board(room), ts: room.ts });
+          checkLimits(room);
         }
         break;
       }
       case 'botdead': {                                             // host reports one of its bots died
         if (!isHost()) return; const bid = Number(m.id), bot = room.bots.get(bid); if (!bot) return;
         const by = Number(m.by) || 0, w = typeof m.w === 'string' && /^[a-z]{1,12}$/.test(m.w) ? m.w : '';
-        if (room.state === 'playing') { bot.deaths++; const k = credit(room, by); if (k && k !== bot) k.frags++; }
-        if (room.state !== 'ended') { bcast(room, { t: 'killed', id: bid, by, w, board: board(room) }); checkFragLimit(room); }
+        if (room.state === 'playing') scoreKill(room, credit(room, by), bot);
+        if (room.state !== 'ended') { bcast(room, { t: 'killed', id: bid, by, w, board: board(room), ts: room.ts }); checkLimits(room); }
         break;
       }
       case 'cfg': {                                                 // host edits match settings in the lobby
         if (!isHost()) return;
-        room.cfg = cleanCfg(m.cfg, room.cfg); syncBots(room);
+        const prev = room.cfg; room.cfg = cleanCfg(m.cfg, room.cfg);
+        if (room.cfg.mode !== prev.mode) for (const p of room.players.values()) p.team = 0;     // re-balance when the mode changes
+        syncBots(room);
         bcast(room, { t: 'cfg', ...roomInfo(room) }); break;
+      }
+      case 'team': {                                                // a player picks RED or BLUE in the lobby
+        const t = Number(m.team); if (!teamMode(room) || room.state === 'playing' || (t !== 1 && t !== 2)) return;
+        me.team = t; assignTeams(room); bcast(room, { t: 'cfg', ...roomInfo(room) }); break;
       }
       case 'start': {
         if (!isHost() || room.state === 'playing') return;
@@ -180,13 +244,44 @@ wss.on('connection', (ws, req) => {
         const nn = String(m.name || '').replace(/[^\w \-]/g, '').slice(0, 14).trim(); if (!nn) return;
         me.name = nn; bcast(room, { t: 'renamed', id, name: nn, board: board(room) }); break;
       }
+      case 'flag': {                                                // capture the flag: take / return / capture
+        if (room.cfg.mode !== 'ctf' || room.state !== 'playing' || !me.team) return;
+        const f = Number(m.f); if (f !== 1 && f !== 2) return;
+        const F = room.flags[f], enemy = f !== me.team;
+        if (m.a === 'take' && enemy && (F.s === 'base' || F.s === 'dropped')) {
+          clearTimeout(F.t); F.s = 'carried'; F.c = id; F.p = null;
+          bcast(room, { t: 'flags', flags: flagView(room), ts: room.ts, ev: { k: 'take', f, by: id } });
+        } else if (m.a === 'return' && !enemy && F.s === 'dropped') {
+          returnFlag(room, f, 'touch', id);
+        } else if (m.a === 'cap' && !enemy) {                       // standing at your own base (flag f is yours) while carrying theirs
+          const ef = 3 - me.team, E = room.flags[ef];
+          if (F.s === 'base' && E.s === 'carried' && E.c === id) {
+            room.ts[me.team]++; me.frags += 3; returnFlag(room, ef, 'cap', id); checkLimits(room);
+            bcast(room, { t: 'killed', id: 0, by: id, w: '', cap: true, board: board(room), ts: room.ts });
+          }
+        }
+        break;
+      }
+      case 'chat': {                                                // quick chat + typed messages. to: 'all' | 'team'
+        const n = Date.now(); if (n - lastChat < 500) return; lastChat = n;
+        const to = m.to === 'team' && me.team ? 'team' : 'all';
+        const out = { t: 'chat', from: id, to, k: typeof m.k === 'string' ? m.k.slice(0, 16) : '', txt: typeof m.txt === 'string' ? m.txt.replace(/[<>]/g, '').slice(0, 80) : '' };
+        if (!out.k && !out.txt) return;
+        if (to === 'team') bcastTeam(room, me.team, out); else bcast(room, out); break;
+      }
+      case 'rtc': {                                                 // WebRTC signalling for voice: forward to one peer
+        const to = Number(m.to), peer = room.players.get(to); if (peer && m.d) send(peer.ws, { t: 'rtc', from: id, d: m.d }); break;
+      }
+      case 'talk': { bcast(room, { t: 'talk', id, on: !!m.on }, id); break; }
     }
   });
   ws.on('close', () => {
+    dropFlagsOf(room, id);
     room.players.delete(id); bcast(room, { t: 'leave', id });
     console.log(`[${code}] - ${name} (#${id}) — ${room.players.size} left`);
-    if (!room.players.size) { clearTimeout(room.endTimer); rooms.delete(code); return; }
+    if (!room.players.size) { clearTimeout(room.endTimer); clearFlags(room); rooms.delete(code); return; }
     if (room.host === id) { room.host = Math.min(...room.players.keys()); bcast(room, { t: 'host', host: room.host }); }
+    if (teamMode(room)) { assignTeams(room); bcast(room, { t: 'cfg', ...roomInfo(room) }); }
   });
 });
 
@@ -194,7 +289,7 @@ wss.on('connection', (ws, req) => {
 function listRooms() {
   return [...rooms.values()].filter(r => r.cfg.open && r.players.size < MAX).map(r => ({
     room: r.code, host: r.players.get(r.host)?.name ?? '?', players: r.players.size, bots: r.bots.size, map: r.cfg.map, state: r.state,
-    frag: r.cfg.frag, time: r.cfg.time,
+    frag: r.cfg.frag, time: r.cfg.time, mode: r.cfg.mode,
   }));
 }
 

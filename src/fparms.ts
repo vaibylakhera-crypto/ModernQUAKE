@@ -3,6 +3,7 @@ import { buildFighter, Dressed } from './dress';
 import { ikArm } from './anim';
 import { WeaponId } from './weapons';
 import { GRIP_Z, SUPPORT } from './grips';
+import { TEAMS } from './teams';
 
 // First-person arms: the real rigged character (armoured, head hidden) with both arms IK'd onto the gun's grips,
 // so the gloved hands are genuine hand meshes with curled fingers instead of boxes.
@@ -10,13 +11,19 @@ export class FpArms {
   rig?: Dressed; ready = false;
   constructor(private scene: THREE.Scene, private eyeY = 1.66) {}
 
-  async init() {
-    const rig = await buildFighter('male', 0x35d8ff, 0x59626f);
+  private gen = 0;
+  /** build (or rebuild) the arms; team 1/2 gives red / blue armour */
+  async init(team = 0) {
+    const my = ++this.gen, t = TEAMS[team];
+    const rig = await buildFighter('male', t ? t.hex : 0x35d8ff, t ? t.armor : 0x59626f, t ? t.suit : undefined);
+    if (my !== this.gen) return;
+    if (this.rig) { this.rig.root.removeFromParent(); this.ready = false; }
     // keep only the arm armour; hide head, shoulders, torso and leg plates
     for (const [n, b] of Object.entries(rig.bones)) { if (/^(upperarm|lowerarm)_/.test(n)) continue; for (const c of b.children) if ((c as THREE.Mesh).isMesh) c.visible = false; }
     // solid glove/suit material (no skin-tone texture patches)
     // clip away shoulders/neck above the arm line (the camera sits inside the head)
-    rig.body.material = new THREE.MeshLambertMaterial({ color: 0x3a4250, emissive: 0x0b0e14, clippingPlanes: [new THREE.Plane(new THREE.Vector3(0, -1, 0), -0.085)] });
+    const glove = t ? new THREE.Color(t.suit[0], t.suit[1], t.suit[2]).multiplyScalar(0.55) : new THREE.Color(0x3a4250);
+    rig.body.material = new THREE.MeshLambertMaterial({ color: glove, emissive: 0x0b0e14, clippingPlanes: [new THREE.Plane(new THREE.Vector3(0, -1, 0), -0.085)] });
     rig.root.rotation.y = Math.PI;                 // character faces +Z, the view camera looks down -Z
     rig.root.position.set(0, -this.eyeY, -0.13);   // shoulders a little forward (like most FPS arm rigs) so front grips are in reach
     this.scene.add(rig.root);

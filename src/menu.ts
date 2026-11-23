@@ -140,7 +140,7 @@ export class Menu {
       ctl: Number(load('mq-ctl', '1')) || 1, cta: Number(load('mq-cta', '0.9')) || 0.9, vibe: load('mq-vibe', '1') !== '0',
     };
     try { this.draft = { map: 'boreal', bots: 3, skill: 1, frag: 20, time: 10, open: true, ...JSON.parse(load('mq-cfg', '{}')) }; }
-    catch { this.draft = { map: 'boreal', bots: 3, skill: 1, frag: 20, time: 10, open: true }; }
+    catch { this.draft = { map: 'boreal', mode: 'ffa', bots: 3, skill: 1, frag: 20, caps: 3, time: 10, open: true }; }
     this.endEl = document.createElement('div'); this.endEl.id = 'endscreen'; document.body.appendChild(this.endEl);
     this.scoreEl = document.createElement('div'); this.scoreEl.id = 'scoreov'; document.body.appendChild(this.scoreEl);
     // the menu scrolls on phones: keep its touches away from the game's touch handlers

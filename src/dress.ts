@@ -15,7 +15,7 @@ const strip = (g: THREE.BufferGeometry) => { for (const n of Object.keys(g.attri
 
 export interface Dressed extends Rig { teamColor: number }
 
-export async function buildFighter(gender: Gender, teamColor: number, armorColor = 0x8d97ab): Promise<Dressed> {
+export async function buildFighter(gender: Gender, teamColor: number, armorColor = 0x8d97ab, suit: [number, number, number] = [0.1, 0.2, 0.55]): Promise<Dressed> {
   const rig = await makeRig(gender);
   rig.root.updateMatrixWorld(true);
   const P: Piece[] = [];
@@ -28,7 +28,7 @@ export async function buildFighter(gender: Gender, teamColor: number, armorColor
   // ───────── bodysuit: dark tint on the skin texture keeps the baked anatomy shading
   // tint colour cancels the warm skin tone -> dark blue-grey suit, baked anatomy shading kept
   const body = rig.body; const src = body.material as THREE.MeshStandardMaterial;
-  body.material = new THREE.MeshLambertMaterial({ map: src.map, color: new THREE.Color(0.1, 0.2, 0.55) });
+  body.material = new THREE.MeshLambertMaterial({ map: src.map, color: new THREE.Color(suit[0], suit[1], suit[2]) });
 
   // ───────── helmet
   add('Head', new THREE.SphereGeometry(1, 28, 20), T(0, 1.715, -0.012, 0, 0, 0, 0.128, 0.146, 0.158));                 // shell

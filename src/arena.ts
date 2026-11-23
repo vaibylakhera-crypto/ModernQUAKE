@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { boxes, pads, Box, teleporters, THEME } from './level';
+import { boxes, pads, Box, teleporters, THEME, lifts, liftBoxes } from './level';
+import { liftMoving } from './lifts';
 import { Quality } from './quality';
 import { buildPad, padTime, buildTeleporter, teleTime } from './pads';
 
@@ -132,6 +133,9 @@ export class Arena {
       if (b.kind === 'pillar') this.pillar(b);
       else if (b.kind === 'crates') this.lowWall(b);
       else if (b.kind === 'block') this.solid(b);
+      else if (b.kind === 'floor') this.slab(b);
+      else if (b.kind === 'light') this.add('lamp', brush(new THREE.Vector3(...b.min), new THREE.Vector3(...b.max)));
+      else if (b.kind === 'lift') { /* drawn as a moving mesh */ }
       else this.platform(b, i);
     });
     const mat = (part: Part): THREE.Material => {
@@ -155,6 +159,7 @@ export class Arena {
       const m = new THREE.Mesh(mergeGeometries(geos.map(g => { for (const n of Object.keys(g.attributes)) if (!['position', 'normal', 'uv', 'color', 'tangent'].includes(n)) g.deleteAttribute(n); if (!g.getAttribute('color')) { const c = new Float32Array(g.getAttribute('position').count * 3).fill(1); g.setAttribute('color', new THREE.BufferAttribute(c, 3)); } if (!g.getAttribute('uv')) g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(g.getAttribute('position').count * 2), 2)); return g.index ? g.toNonIndexed() : g; }))!, mat(part));
       m.matrixAutoUpdate = false; this.group.add(m); this.stats.merged++;
     }
+    this.buildLifts();
   }
 
   private platform(b: Box, i: number) {
@@ -199,6 +204,29 @@ export class Arena {
     this.add('lamp', brush(new THREE.Vector3(cx - 0.14, max.y - 1.1, min.z - 0.12), new THREE.Vector3(cx + 0.14, max.y - 0.8, min.z - 0.01)));
   }
 
+  /** flat indoor floor: tiled deck plates on top, wall texture on the sides and underneath */
+  private slab(b: Box) {
+    const min = new THREE.Vector3(...b.min), max = new THREE.Vector3(...b.max);
+    const { rest } = splitTop(brush(min, max, { side: 4, bottom: 4, aoLow: 0.5 }));
+    this.add('floor', floorGrid(min, max)); this.add('wall', rest);
+  }
+
+  /** moving lift platforms: dark slab, glowing frame (brighter while moving), marker where it lands */
+  private liftMeshes: { g: THREE.Group; edge: THREE.MeshBasicMaterial }[] = [];
+  private buildLifts() {
+    lifts.forEach(l => {
+      const w = l.x1 - l.x0, d = l.z1 - l.z0, g = new THREE.Group();
+      const slab = new THREE.Mesh(new THREE.BoxGeometry(w, 0.5, d), new THREE.MeshLambertMaterial({ color: 0x2c313a })); slab.position.y = -0.27;
+      const plate = new THREE.Mesh(new THREE.BoxGeometry(w - 0.35, 0.05, d - 0.35), new THREE.MeshLambertMaterial({ color: 0x555d6a })); plate.position.y = -0.03;
+      const edgeMat = new THREE.MeshBasicMaterial({ color: THEME.lamp });
+      const edge = new THREE.Mesh(new THREE.BoxGeometry(w + 0.08, 0.07, d + 0.08), edgeMat); edge.position.y = -0.08;
+      g.add(slab, edge, plate); g.position.set((l.x0 + l.x1) / 2, l.y0, (l.z0 + l.z1) / 2);
+      this.group.add(g); this.liftMeshes.push({ g, edge: edgeMat });
+      const mark = new THREE.Mesh(new THREE.PlaneGeometry(w, d).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: THEME.lamp, transparent: true, opacity: 0.16, depthWrite: false }));
+      mark.position.set((l.x0 + l.x1) / 2, l.y0 + 0.03, (l.z0 + l.z1) / 2); this.group.add(mark);
+    });
+  }
+
   /** solid wall / ceiling slab: every face uses the wall texture */
   private solid(b: Box) {
     const min = new THREE.Vector3(...b.min), max = new THREE.Vector3(...b.max);
@@ -211,5 +239,8 @@ export class Arena {
     this.add('trim', top); this.add('wall', rest);
   }
 
-  update(t: number) { padTime.value = t; teleTime.value = t; this.spin.forEach((o, i) => { o.rotation.z = t * (i % 2 ? -1.4 : 1.1); o.position.y += Math.sin(t * 2 + i) * 0.002; }); }
+  /** tSec: the shared (server) clock the lifts run on */
+  update(t: number, tSec = Date.now() / 1000) {
+    this.liftMeshes.forEach((m, i) => { m.g.position.y = liftBoxes[i].max[1]; m.edge.color.set(liftMoving(lifts[i], tSec) ? 0xffffff : THEME.lamp); });
+    padTime.value = t; teleTime.value = t; this.spin.forEach((o, i) => { o.rotation.z = t * (i % 2 ? -1.4 : 1.1); o.position.y += Math.sin(t * 2 + i) * 0.002; }); }
 }

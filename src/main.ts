@@ -24,6 +24,8 @@ import { TouchControls, isTouch as touchDevice, goFullscreen } from './touch';
 import { setupAssets } from './assets';
 import * as sfx from './sfx';
 import { Gyro } from './gyro';
+import { LiftSystem } from './lifts';
+import { lifts as __lifts } from './level';
 import { WeaponId } from './weapons';
 
 const Q = getQuality();
@@ -212,6 +214,7 @@ if (TOUCH) {
   document.addEventListener('visibilitychange', () => { if (document.hidden && touchPlaying) { touchPlaying = false; touch!.show(false); openPause(); } });
 }
 const gyro = new Gyro();
+const liftSys = new LiftSystem();
 let aimSens = 1;
 try { aimSens = Number(localStorage.getItem('mq-sens')) || 1; } catch { /* ignore */ }
 
@@ -295,7 +298,7 @@ const savedName = (() => { try { return (localStorage.getItem('mq-name') || '').
 let myName = ((qs.get('name') || savedName || 'PLAYER').toUpperCase().replace(/[^\w \-]/g, '').slice(0, 14)) || 'PLAYER';
 let mode: 'title' | 'solo' | 'online' = 'title';
 const intParam = (k: string, d: number) => { const v = Number(qs.get(k)); return qs.has(k) && Number.isFinite(v) ? v : d; };
-let cfg: MatchCfg = { map: MAP, bots: intParam('bots', 3), skill: intParam('skill', 1), frag: intParam('frag', 20), time: intParam('time', 10), open: true };
+let cfg: MatchCfg = { map: MAP, mode: qs.get('mode2') || 'ffa', bots: intParam('bots', 3), skill: intParam('skill', 1), frag: intParam('frag', 20), caps: intParam('caps', 3), time: intParam('time', 10), open: true };
 let matchState: 'lobby' | 'playing' | 'ended' = 'playing';
 let endsAt = 0, timeOffset = 0, hostId = 0;
 const isHost = () => mode === 'online' && net.online && hostId === net.id;
@@ -760,6 +763,7 @@ function frame(now: number) {
       jumpPressed: jumpQueued, crouch: keys.has('KeyC') || keys.has('ControlLeft') || !!touch?.crouch, yaw,
     };
     jumpQueued = false;
+    liftSys.update((Date.now() + timeOffset) / 1000, [player]);
     player.step(input, DT);
     acc -= DT;
   }
@@ -796,7 +800,7 @@ function frame(now: number) {
   stars.update(camera, renderer.getPixelRatio());
   if (!Q.liveSky || PLAIN_SKY) { const a = now / 1000 * 0.004; scene.backgroundRotation.y = a; stars.mesh.rotation.y = a; }
   if (Q.liveSky && !PLAIN_SKY) sky.update(now / 1000, camera);
-  world.update(now / 1000); surround.update(now / 1000);
+  world.update(now / 1000, (Date.now() + timeOffset) / 1000); surround.update(now / 1000);
   hud();
   if (composer) composer.render(); else renderer.render(scene, camera);
   vm.update(Math.min(0.05, frameMs / 1000), { speed: player.speedXZ, grounded: player.grounded, lookDX, lookDY, spinning: firing() && locked() && vm.current === 'nailer', beam: firing() && locked() && vm.current === 'arc' }); lookDX = lookDY = 0;
@@ -807,4 +811,4 @@ function frame(now: number) {
 requestAnimationFrame(frame);
 
 // dev/test hook
-(window as any).__game = { bots, net, remotes, menu, stars, scene, grantBooster, boost, level: { pads: levelPads, teleporters: levelTeleporters, boxes, pickups: levelPickups, spawns: levelSpawns }, get mode() { return mode; }, get matchState() { return matchState; }, scores: () => board(), doFire, player, camera, vm, loadout, combat, pickupSys, targets, say, die, renderer, world, Q, get scale() { return renderScale; }, setLook: (y: number, p: number) => { yaw = y; pitch = p; }, PM };
+(window as any).__game = { bots, net, remotes, menu, stars, scene, grantBooster, boost, liftSys, lifts: __lifts, level: { pads: levelPads, teleporters: levelTeleporters, boxes, pickups: levelPickups, spawns: levelSpawns }, get mode() { return mode; }, get matchState() { return matchState; }, scores: () => board(), doFire, player, camera, vm, loadout, combat, pickupSys, targets, say, die, renderer, world, Q, get scale() { return renderScale; }, setLook: (y: number, p: number) => { yaw = y; pitch = p; }, PM };

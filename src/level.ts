@@ -1,6 +1,6 @@
 // Level data for every map. Pure data (no three.js) so the server could share it later.
 // The map is chosen once per page load from ?map=… ; everything else imports the resolved arrays below.
-export interface Box { min: [number, number, number]; max: [number, number, number]; tint?: number; kind?: 'pillar' | 'crates' | 'block' }
+export interface Box { min: [number, number, number]; max: [number, number, number]; tint?: number; kind?: 'pillar' | 'crates' | 'block' | 'floor' | 'light' | 'lift' }
 
 export type BounceTier = 'small' | 'medium' | 'mega';
 export interface BouncePad { kind: 'bounce'; pos: [number, number, number]; tier: BounceTier }
@@ -8,6 +8,11 @@ export interface JumpPad { kind: 'jump'; pos: [number, number, number]; target: 
 export type Pad = BouncePad | JumpPad;
 /** step on `pos`, come out at `dest` facing `yaw` (0 = -Z), keeping your horizontal speed */
 export interface Teleporter { pos: [number, number, number]; dest: [number, number, number]; yaw: number }
+/**
+ * A lift: a platform that glides between two heights on a fixed clock (so every player sees the same lift).
+ * It waits `wait` seconds at each end and takes `travel` seconds to move. y0/y1 are the heights of its top surface.
+ */
+export interface Lift { x0: number; x1: number; z0: number; z1: number; y0: number; y1: number; wait: number; travel: number; phase: number }
 /** an area bots roam in (one flat floor) */
 export interface BotZone { x0: number; x1: number; z0: number; z1: number; y: number }
 
@@ -28,6 +33,7 @@ export interface MapDef {
   id: string; name: string; desc: string; theme: MapTheme;
   boxes: Box[]; pads: Pad[]; spawns: { pos: [number, number, number]; yaw: number }[];
   pickups: PickupDef[]; teleporters: Teleporter[]; botZones: BotZone[];
+  lifts?: Lift[];
   /** capture-the-flag bases (maps without them only offer deathmatch modes) */
   flags?: { red: [number, number, number]; blue: [number, number, number] };
 }
@@ -46,6 +52,15 @@ function wall(x0: number, z0: number, x1: number, z1: number, y: number, h = 1):
 function block(x0: number, y0: number, z0: number, x1: number, y1: number, z1: number): Box {
   return { min: [x0, y0, z0], max: [x1, y1, z1], tint: 1, kind: 'block' };
 }
+/** flat indoor floor slab (no hull, no rock underneath: you can't see it from outside) */
+function floorSlab(x0: number, z0: number, x1: number, z1: number, top: number, th = 0.6): Box {
+  return { min: [x0, top - th, z0], max: [x1, top, z1], tint: 0, kind: 'floor' };
+}
+/** a glowing ceiling light strip */
+function light(x0: number, z0: number, x1: number, z1: number, y: number): Box {
+  return { min: [x0, y - 0.15, z0], max: [x1, y, z1], kind: 'light' };
+}
+const lift = (x0: number, z0: number, x1: number, z1: number, y0: number, y1: number, phase = 0, wait = 2.5, travel = 1.8): Lift => ({ x0, x1, z0, z1, y0, y1, wait, travel, phase });
 const W = Math.PI / 2;   // yaw helpers: facing +X = -W, facing -X = +W, facing +Z = PI, facing -Z = 0
 
 // ───────────── IRON CRADLE / DEEP VOID (the original arena; no teleporters or boosters) ─────────────
@@ -177,11 +192,13 @@ const BASTION: Omit<MapDef, 'id' | 'name' | 'desc'> = {
 // Rocket and rail sit on opposite catwalks, mega health on the low reactor in the middle, jump pads and bounce pads lift you up,
 // and two teleporters throw you across the hall.
 const FOUNDRY: Omit<MapDef, 'id' | 'name' | 'desc'> = {
-  theme: { fog: 0x120804, fogD: 0.006, hemiSky: 0xffb070, hemiGround: 0x1a0c06, ambient: 0x4a2a18, key: 0xff9a50, rim: 0x803018, lamp: 0xff7a28, tint: [1.3, 0.92, 0.7] },
+  theme: { fog: 0x120804, fogD: 0.006, hemiSky: 0xffb070, hemiGround: 0x1a0c06, ambient: 0x70402a, key: 0xff9a50, rim: 0x803018, lamp: 0xff7a28, tint: [1.3, 0.92, 0.7] },
   flags: { red: [-17, 0, 0], blue: [17, 0, 0] },
   boxes: [
     plat(0, 0, 0, 40, 32, 1.5, 0),
     block(-21, -1.5, -17, 21, 11, -16), block(-21, -1.5, 16, 21, 11, 17), block(-21, -1.5, -16, -20, 11, 16), block(20, -1.5, -16, 21, 11, 16),
+    block(-21, 11, -17, 21, 12, 17),                                                    // ceiling: a sealed building
+    light(-12, -8, 12, -6, 11), light(-12, 6, 12, 8, 11), light(-14, -1, -10, 1, 11), light(10, -1, 14, 1, 11), light(-2, -14, 2, -12, 11), light(-2, 12, 2, 14, 11),
     plat(0, 5, -13.5, 40, 5, 0.6, 2), plat(0, 5, 13.5, 40, 5, 0.6, 4), plat(-17.5, 5, 0, 5, 22, 0.6, 3), plat(17.5, 5, 0, 5, 22, 0.6, 1),
     plat(0, 1.2, 0, 8, 8, 1.2, 5),
     pillar(-8, 0, -5, 1.4, 5), pillar(8, 0, -5, 1.4, 5), pillar(-8, 0, 5, 1.4, 5), pillar(8, 0, 5, 1.4, 5),
@@ -208,17 +225,20 @@ const FOUNDRY: Omit<MapDef, 'id' | 'name' | 'desc'> = {
     { kind: 'armor', amount: 25, pos: [-18, 0, 14] }, { kind: 'armor', amount: 25, pos: [18, 0, -14] },
   ],
   botZones: [{ x0: -18, x1: 18, z0: -14, z1: 14, y: 0 }],
+  lifts: [lift(-16, 7, -12, 11, 0, 5, 0), lift(12, -11, 16, -7, 0, 5, 3)],   // up to the south-west / north-east catwalks
 };
 
 // ───────────── CRYPT ─────────────
 // A tight 60x28 tomb: three halls joined by narrow doorways (walls to 6 m), with a catwalk along the north and south walls.
 // Corridors, doorways and corners make this close-quarters; teleporters connect the far corners.
 const CRYPT: Omit<MapDef, 'id' | 'name' | 'desc'> = {
-  theme: { fog: 0x03100e, fogD: 0.013, hemiSky: 0x90e8d0, hemiGround: 0x04120e, ambient: 0x1a4a40, key: 0x70ffd0, rim: 0x20605a, lamp: 0x50ffc0, tint: [0.78, 1.18, 1.05] },
+  theme: { fog: 0x03100e, fogD: 0.013, hemiSky: 0x90e8d0, hemiGround: 0x04120e, ambient: 0x2c6e60, key: 0x70ffd0, rim: 0x20605a, lamp: 0x50ffc0, tint: [0.78, 1.18, 1.05] },
   flags: { red: [-27, 0, 0], blue: [27, 0, 0] },
   boxes: [
     plat(0, 0, 0, 60, 28, 1.5, 0),
     block(-31, -1.5, -15, 31, 12, -14), block(-31, -1.5, 14, 31, 12, 15), block(-31, -1.5, -14, -30, 12, 14), block(30, -1.5, -14, 31, 12, 14),
+    block(-31, 12, -15, 31, 13, 15),                                                    // ceiling
+    light(-26, -1, -22, 1, 12), light(-2, -1, 2, 1, 12), light(22, -1, 26, 1, 12), light(-16, -8, -12, -6, 12), light(12, 6, 16, 8, 12),
     block(-10.5, -1.5, -14, -9.5, 6, -2.5), block(-10.5, -1.5, 2.5, -9.5, 6, 14),
     block(9.5, -1.5, -14, 10.5, 6, -2.5), block(9.5, -1.5, 2.5, 10.5, 6, 14),
     plat(0, 6, -11.5, 60, 5, 0.6, 3), plat(0, 6, 11.5, 60, 5, 0.6, 3),
@@ -248,6 +268,51 @@ const CRYPT: Omit<MapDef, 'id' | 'name' | 'desc'> = {
     { kind: 'armor', amount: 25, pos: [-27, 0, 12] }, { kind: 'armor', amount: 25, pos: [27, 0, -12] },
   ],
   botZones: [{ x0: -28, x1: 28, z0: -12, z1: 12, y: 0 }],
+  lifts: [lift(-18, -9, -14, -5, 0, 6, 0), lift(14, 5, 18, 9, 0, 6, 3)],
+};
+
+// ───────────── TOWER ─────────────
+// A sealed three-storey building (40x28). The atrium in the middle drops to the ground floor; two lifts there carry you up to the
+// mezzanine, jump pads throw you to the narrow top gallery, and the teleporters at the gallery corners send you back to the ground.
+// Rocket and rail are on the gallery, mega health sits in the atrium between the lifts.
+const TOWER: Omit<MapDef, 'id' | 'name' | 'desc'> = {
+  theme: { fog: 0x0a0a12, fogD: 0.007, hemiSky: 0xc0c8e8, hemiGround: 0x14121c, ambient: 0x58587a, key: 0xd8d8ff, rim: 0x5060a0, lamp: 0xffe0a0, tint: [0.92, 0.95, 1.1] },
+  flags: { red: [-17, 0, 0], blue: [17, 0, 0] },
+  boxes: [
+    floorSlab(-20, -14, 20, 14, 0, 1.5),
+    block(-21, -1.5, -15, 21, 19, -14), block(-21, -1.5, 14, 21, 19, 15), block(-21, -1.5, -14, -20, 19, 14), block(20, -1.5, -14, 21, 19, 14),
+    block(-21, 18, -15, 21, 19, 15),                                                    // ceiling
+    light(-14, -2, -10, 2, 18), light(10, -2, 14, 2, 18), light(-2, -10, 2, -6, 18), light(-2, 6, 2, 10, 18), light(-2, -2, 2, 2, 18),
+    // mezzanine (y=6): four plates around a 12x10 atrium
+    floorSlab(-20, -14, -6, 14, 6), floorSlab(6, -14, 20, 14, 6), floorSlab(-6, -14, 6, -5, 6), floorSlab(-6, 5, 6, 14, 6),
+    // top gallery (y=12): a ring of narrow walkways along the walls
+    floorSlab(-20, -14, 20, -10, 12), floorSlab(-20, 10, 20, 14, 12), floorSlab(-20, -10, -16, 10, 12), floorSlab(16, -10, 20, 10, 12),
+    pillar(-10, 6, -8, 1.2, 6), pillar(10, 6, -8, 1.2, 6), pillar(-10, 6, 8, 1.2, 6), pillar(10, 6, 8, 1.2, 6),
+    pillar(-10, 0, -9, 1.4, 6), pillar(10, 0, 9, 1.4, 6),
+    wall(-14, -4, -13, 4, 0, 1.2), wall(13, -4, 14, 4, 0, 1.2),
+  ],
+  spawns: [{ pos: [-16, 0, -9], yaw: -W }, { pos: [16, 0, 9], yaw: W }, { pos: [-16, 0, 9], yaw: -W }, { pos: [16, 0, -9], yaw: W }],
+  pads: [
+    { kind: 'jump', pos: [-18, 6, 8], target: [-18, 12, 4] }, { kind: 'jump', pos: [18, 6, -8], target: [18, 12, -4] },
+    { kind: 'jump', pos: [-12, 6, 0], target: [-12, 12, 12] }, { kind: 'jump', pos: [12, 6, 0], target: [12, 12, -12] },
+    { kind: 'bounce', pos: [-12, 0, 8], tier: 'medium' }, { kind: 'bounce', pos: [12, 0, -8], tier: 'medium' },
+  ],
+  teleporters: [
+    { pos: [-18, 12, -12], dest: [17, 0, 11], yaw: W }, { pos: [18, 12, 12], dest: [-17, 0, -11], yaw: -W },
+    { pos: [-18, 12, 12], dest: [0, 6, -9.5], yaw: Math.PI }, { pos: [18, 12, -12], dest: [0, 6, 9.5], yaw: 0 },
+  ],
+  pickups: [
+    { kind: 'booster', id: 'mega', pos: [0, 0, 0] },
+    { kind: 'weapon', id: 'rocket', pos: [0, 12, -12] }, { kind: 'weapon', id: 'rail', pos: [0, 12, 12] },
+    { kind: 'weapon', id: 'plasma', pos: [-18, 12, 0] }, { kind: 'weapon', id: 'nailer', pos: [18, 12, 0] },
+    { kind: 'weapon', id: 'scatter', pos: [-8, 0, 0] }, { kind: 'weapon', id: 'scatter', pos: [8, 0, 0] }, { kind: 'weapon', id: 'arc', pos: [0, 6, -12] },
+    { kind: 'booster', id: 'overdrive', pos: [0, 6, 12] }, { kind: 'booster', id: 'haste', pos: [-17, 6, -12] }, { kind: 'booster', id: 'regen', pos: [17, 6, 12] },
+    { kind: 'booster', id: 'shield', pos: [-17, 6, 12] }, { kind: 'booster', id: 'jump', pos: [17, 6, -12] },
+    { kind: 'health', amount: 25, pos: [-18, 0, -12] }, { kind: 'health', amount: 25, pos: [18, 0, 12] },
+    { kind: 'armor', amount: 25, pos: [-18, 0, 12] }, { kind: 'armor', amount: 25, pos: [18, 0, -12] },
+  ],
+  botZones: [{ x0: -18, x1: 18, z0: -12, z1: 12, y: 0 }],
+  lifts: [lift(-2, -4.8, 2, -0.8, 0, 6, 0), lift(-2, 0.8, 2, 4.8, 0, 6, 2.2)],
 };
 
 // ───────────── RING ─────────────
@@ -294,9 +359,10 @@ export const MAPS: Record<string, MapDef> = {
   void: { id: 'void', name: 'DEEP VOID', desc: 'The same arena in a darker, colder light', ...CRADLE, theme: { ...T_DEFAULT, hemiSky: 0x9aa8d0, key: 0xb0bce0, ambient: 0x2a3048, lamp: 0x80a0ff, tint: [0.8, 0.88, 1.1] } },
   spire: { id: 'spire', name: 'SPIRE RING', desc: 'Hub, bridges, high perches and a spire. 6 teleporters', ...SPIRE },
   bastion: { id: 'bastion', name: 'TWIN BASTIONS', desc: 'Two fortresses facing off over a sunken island', ...BASTION },
-  foundry: { id: 'foundry', name: 'FOUNDRY', desc: 'Walled hall with a catwalk loop and a reactor core', ...FOUNDRY },
-  crypt: { id: 'crypt', name: 'CRYPT', desc: 'Tight halls and doorways. Close-quarters fights', ...CRYPT },
+  foundry: { id: 'foundry', name: 'FOUNDRY', desc: 'Sealed hall with a catwalk loop, lifts and a reactor core', ...FOUNDRY },
+  crypt: { id: 'crypt', name: 'CRYPT', desc: 'Sealed halls and doorways, lifts to the catwalks. Close-quarters', ...CRYPT },
   ring: { id: 'ring', name: 'THE RING', desc: 'A loop around a void. Long lines of fire', ...RING },
+  tower: { id: 'tower', name: 'TOWER', desc: 'Sealed three-storey building with lifts, atrium and a top gallery', ...TOWER },
 };
 export const MAP_LIST = Object.values(MAPS);
 function pickMap(): string {
@@ -304,7 +370,10 @@ function pickMap(): string {
 }
 export const MAP_ID = typeof location === 'undefined' ? 'boreal' : pickMap();
 const DEF = MAPS[MAP_ID];
-export const boxes = DEF.boxes;
+export const lifts = DEF.lifts ?? [];
+/** each lift's collision box (moved every step by lifts.ts) shares the same list the player collides with */
+export const liftBoxes: Box[] = lifts.map(l => ({ min: [l.x0, l.y0 - 0.5, l.z0] as [number, number, number], max: [l.x1, l.y0, l.z1] as [number, number, number], kind: 'lift' as const }));
+export const boxes = [...DEF.boxes, ...liftBoxes];
 export const pads = DEF.pads;
 export const spawns = DEF.spawns;
 export const pickups = DEF.pickups;

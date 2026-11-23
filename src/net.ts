@@ -3,14 +3,16 @@ import { buildFighter, Dressed } from './dress';
 import { animate, holdWeapon, AnimState } from './anim';
 import { Target } from './combat';
 import { WeaponId } from './weapons';
+import { TEAMS } from './teams';
 
 // Online play: a tiny room server relays state. Each client simulates itself; shooters report hitscan hits, victims apply projectile damage.
 
-export interface PlayerInfo { id: number; name: string; color: number; frags: number; deaths: number; bot?: boolean; weapon?: WeaponId }
+export interface PlayerInfo { id: number; name: string; color: number; team?: number; frags: number; deaths: number; bot?: boolean; weapon?: WeaponId }
 /** match settings chosen by the host (or for a solo game) */
-export interface MatchCfg { map: string; bots: number; skill: number; frag: number; time: number; open?: boolean }
+export interface MatchCfg { map: string; mode: string; bots: number; skill: number; frag: number; caps: number; time: number; open?: boolean }
+export interface FlagState { s: 'base' | 'carried' | 'dropped'; c: number; p: number[] | null }
 /** everything the server says about a room */
-export interface RoomInfo { room: string; host: number; cfg: MatchCfg; state: 'lobby' | 'playing' | 'ended'; endsAt: number; now: number; players: PlayerInfo[] }
+export interface RoomInfo { room: string; host: number; cfg: MatchCfg; state: 'lobby' | 'playing' | 'ended'; endsAt: number; now: number; players: PlayerInfo[]; ts: { 1: number; 2: number }; flags: { 1: FlagState; 2: FlagState } }
 const PROJECTILE_KINDS = new Set(['nailer', 'rocket', 'plasma', 'splash']);   // victim applies these locally from the replicated projectile
 
 function nameSprite(text: string, color: number): THREE.Sprite {
@@ -29,12 +31,23 @@ export class RemotePlayer implements Target {
   constructor(public info: PlayerInfo, private parent: THREE.Object3D, private sendHit: (to: number, dmg: number, dir: THREE.Vector3, kind: string) => void) {
     this.id = 'p' + info.id;
     if (info.weapon) this.weapon = info.weapon;
-    buildFighter(info.id % 2 ? 'male' : 'female', info.color).then(rig => {
-      this.rig = rig; parent.add(rig.root);
-      const label = nameSprite(info.name, info.color); label.position.set(0, 2.25, 0); rig.root.add(label); this.label = label;
+    this.build();
+  }
+  get team() { return this.info.team ?? 0; }
+  private gen = 0;
+  /** (re)creates the 3D character: team modes dress everyone in red or blue armour */
+  private build() {
+    const my = ++this.gen, info = this.info, t = TEAMS[info.team ?? 0];
+    buildFighter(info.id % 2 ? 'male' : 'female', t ? t.hex : info.color, t ? t.armor : undefined, t ? t.suit : undefined).then(rig => {
+      if (my !== this.gen) return;                                   // a newer build (team changed) replaced this one
+      this.rig?.root.removeFromParent();
+      this.rig = rig; this.parent.add(rig.root);
+      const label = nameSprite(info.name, t ? t.hex : info.color); label.position.set(0, 2.25, 0); rig.root.add(label); this.label = label;
       animate(rig, { t: 0, speed: 0, dead: 0, look: 0, pain: 0, fire: 0 }); this.holder = holdWeapon(rig, this.weapon); this.apply();
     });
   }
+  /** the player moved to another team: new outfit and name colour */
+  setTeam(team: number) { if ((this.info.team ?? 0) === team) return; this.info.team = team; this.build(); }
   setWeapon(w: WeaponId) {
     if (w === this.weapon) return; this.weapon = w;
     if (!this.rig) return; this.holder?.removeFromParent(); this.holder = holdWeapon(this.rig, w);
