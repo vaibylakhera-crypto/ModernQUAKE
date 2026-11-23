@@ -16,13 +16,15 @@
   html,body{margin:0;height:100%;background:#000;overflow:hidden;font-family:"Rajdhani","Segoe UI",system-ui,sans-serif;color:#dff}
   canvas{display:block}
   #hud{position:fixed;inset:0;pointer-events:none;text-shadow:0 0 8px #000}
-  #cross{position:absolute;left:50%;top:50%;width:0;height:0}
-  #cross i{position:absolute;background:#e9ffff;opacity:.92;border-radius:1px;box-shadow:0 0 0 1px rgba(0,0,0,.55)}
-  #cross i:nth-child(1){left:-1px;top:-14px;width:2px;height:7px}
-  #cross i:nth-child(2){left:-1px;top:7px;width:2px;height:7px}
-  #cross i:nth-child(3){top:-1px;left:-14px;height:2px;width:7px}
-  #cross i:nth-child(4){top:-1px;left:7px;height:2px;width:7px}
-  #cross b{position:absolute;left:-1.5px;top:-1.5px;width:3px;height:3px;border-radius:50%;background:#7ffff0;box-shadow:0 0 0 1px rgba(0,0,0,.55),0 0 6px #0ff}
+  /* crosshair: 4 ticks with a dark outline (readable on any background) + centre dot; --g (gap) widens while moving / firing */
+  #cross{--g:6px;--l:9px;--t:2px;--c:#f4ffff;position:absolute;left:50%;top:50%;width:0;height:0}
+  #cross i{position:absolute;background:var(--c);border-radius:1px;box-shadow:0 0 0 1px rgba(0,0,0,.8);transition:background .1s}
+  #cross i:nth-child(1){left:calc(var(--t) / -2);bottom:var(--g);width:var(--t);height:var(--l)}
+  #cross i:nth-child(2){left:calc(var(--t) / -2);top:var(--g);width:var(--t);height:var(--l)}
+  #cross i:nth-child(3){top:calc(var(--t) / -2);right:var(--g);height:var(--t);width:var(--l)}
+  #cross i:nth-child(4){top:calc(var(--t) / -2);left:var(--g);height:var(--t);width:var(--l)}
+  #cross b{position:absolute;left:-2px;top:-2px;width:4px;height:4px;border-radius:50%;background:#5ff7e8;box-shadow:0 0 0 1px rgba(0,0,0,.8)}
+  #cross.dry{--c:#ff7a6a}
   .stat{position:absolute;bottom:22px;font-weight:700;font-size:64px;letter-spacing:1px;line-height:1}
   .stat small{display:block;font-size:13px;letter-spacing:3px;opacity:.7;font-weight:600}
   #hp{left:40px;color:#ffd24a}
@@ -40,7 +42,13 @@
   #start h1{font-size:72px;letter-spacing:12px;margin:0;background:linear-gradient(90deg,#6bffb8,#5ee7ff,#c27bff);-webkit-background-clip:text;color:transparent}
   #start p{opacity:.8;letter-spacing:2px;margin:6px 0}
   #frags{position:absolute;top:18px;left:24px;font-size:20px;font-weight:700;letter-spacing:3px;color:#ffd24a}
-  #hit{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:34px;color:#fff;opacity:0;text-shadow:0 0 10px #f33}
+  /* hit marker: 4 diagonal ticks just outside the crosshair */
+  #hit{position:absolute;left:50%;top:50%;width:0;height:0;opacity:0;transform:rotate(45deg)}
+  #hit i{position:absolute;background:#fff;box-shadow:0 0 0 1px rgba(0,0,0,.75),0 0 8px #ff4a3a;border-radius:1px}
+  #hit i:nth-child(1){left:-1.5px;bottom:9px;width:3px;height:9px}
+  #hit i:nth-child(2){left:-1.5px;top:9px;width:3px;height:9px}
+  #hit i:nth-child(3){top:-1.5px;right:9px;height:3px;width:9px}
+  #hit i:nth-child(4){top:-1.5px;left:9px;height:3px;width:9px}
   #wbar{position:absolute;bottom:8px;left:50%;transform:translateX(-50%);display:flex;gap:8px}
   .wslot{min-width:92px;padding:6px 10px;border:1px solid #7ffff022;background:#0007;text-align:center;font-weight:700;letter-spacing:2px;font-size:12px;opacity:.55;transition:.12s}
   .wslot b{display:block;font-size:20px;letter-spacing:0}
@@ -74,7 +82,8 @@
   body.touch .monly{display:none}
   body.touch #medal{display:none}
   body.touch #speed{display:none}
-  body.touch #cross{transform:scale(1.15)}
+  body.touch #cross{--l:11px;--t:3px}
+  body.touch #hit{transform:rotate(45deg) scale(1.25)}
   body.touch .stat{font-size:34px;bottom:auto;top:calc(48px + env(safe-area-inset-top))}
   body.touch .stat small{font-size:10px;letter-spacing:2px}
   body.touch #hp{left:calc(20px + env(safe-area-inset-left))}
@@ -108,7 +117,7 @@
   <div id="medal">FREE-FOR-ALL  ·  PRACTICE</div>
   <div id="msg"></div>
   <div id="frags">FRAGS 0</div>
-  <div id="hit">✕</div>
+  <div id="hit"><i></i><i></i><i></i><i></i></div>
   <div class="stat" id="hp">100<small>HEALTH</small></div>
   <div class="stat" id="ar">0<small>ARMOR</small></div>
   <div id="wbar"></div>

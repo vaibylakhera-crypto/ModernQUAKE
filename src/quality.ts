@@ -27,6 +27,7 @@ export function getQuality(): Quality {
   const q = { ...TIERS[(t === 'med' || t === 'high' || t === 'low') ? t : 'low'] };
   let phone = false; try { phone = matchMedia('(pointer: coarse)').matches; } catch { /* ignore */ }
   // phones: render at up to 1.5x CSS pixels (sharp on high-DPI screens); the adaptive scaler drops toward 0.8x if the GPU can't keep 60 fps
-  if (phone && q.tier === 'low') { q.pixelRatio = 2; q.renderScale = 0.75; q.minScale = 0.4; q.padBeams = false; }
+  // MSAA is close to free on phone (tile-based) GPUs and removes the jagged/soft edges on the gun and level
+  if (phone && q.tier === 'low') { q.antialias = true; q.pixelRatio = 2; q.renderScale = 0.85; q.minScale = 0.45; q.padBeams = false; }
   return q;
 }

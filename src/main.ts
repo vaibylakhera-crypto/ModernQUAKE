@@ -225,6 +225,7 @@ const combat = new Combat(scene, {
 });
 const pickupSys = new Pickups(scene);
 const hitEl = document.getElementById('hit')!; let hitT = 0;
+const crossEl = document.getElementById('cross')!; let crossKick = 0, crossGap = 6;
 const bots: Bot[] = [];
 const botVel = new THREE.Vector3(), botPrev = new THREE.Vector3(); let botPrevSet = false;
 const qs = new URLSearchParams(location.search); const roomCode = (qs.get('room') || '').trim(); const myName = (qs.get('name') || 'PLAYER').slice(0, 14);
@@ -316,7 +317,7 @@ function doFire(id: Parameters<typeof combat.fire>[0]) {
   const muzzle = camera.localToWorld(vm.muzzleCamSpace());
   combat.fire(id, _eye, _dir, muzzle);
   if (net.online) { const w = rayWorld(_eye, _dir, 200); const aim = _eye.clone().addScaledVector(_dir, w ? w.t : 200); const dd = aim.sub(muzzle).normalize(); net.send({ t: 'fire', w: id, o: [muzzle.x, muzzle.y, muzzle.z], d: [dd.x, dd.y, dd.z] }); }
-  vm.fire(id);
+  vm.fire(id); crossKick = 1;
 }
 
 // ---- loop (fixed 120 Hz sim) ----
@@ -353,6 +354,11 @@ function frame(now: number) {
     if (!(window as any).__freezeBots) for (const b of bots) b.update(bdt);
     for (const r of remotes.values()) r.update(bdt);
     hitT = Math.max(0, hitT - bdt); hitEl.style.opacity = String(Math.min(1, hitT * 8));
+    // dynamic crosshair: opens up with speed, air time and each shot, then settles back
+    crossKick = Math.max(0, crossKick - bdt * 5);
+    const gap = 6 + Math.min(6, player.speedXZ * 0.35) + (player.grounded ? 0 : 3) + crossKick * 7;
+    if (Math.abs(gap - crossGap) > 0.25) { crossGap += (gap - crossGap) * Math.min(1, bdt * 18); crossEl.style.setProperty('--g', `${crossGap.toFixed(1)}px`); }
+    crossEl.classList.toggle('dry', !loadout.canFire(vm.current));
     net.sendState(bdt, { p: [player.x, player.y, player.z], yaw, pitch, w: vm.current, hp: player.health, dead: false }); }
   if (!(window as any).__freeze) combat.update(Math.min(0.05, frameMs / 1000));
   stars.update(camera, renderer.getPixelRatio());
