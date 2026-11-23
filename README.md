@@ -36,11 +36,26 @@ Open the hosted URL (e.g. your Render link) on the phone, then:
 Launching from the icon opens it fullscreen like an app. Everyone uses the same room code to play together.
 Test touch controls on desktop with `?touch=1`. The default look is the dark alien-fortress arena (`?style=kit` = the older bright sci-fi kit). The default sky is black with stars; `?sky=nebula` brings back the painted space sky.
 
-## Maps
-- **Iron Cradle / Deep Void** - the original arena.
-- **Spire Ring** - hub, bridges, raised decks, four high perches, a floating spire; 6 teleporters and boosters.
-- **Twin Bastions** - two fortress bases, sky bridges, a sunken island; cross-map teleporters and boosters.
+## Game modes
+- **Deathmatch** - everyone for themselves, most frags wins.
+- **Team Deathmatch** - Red vs Blue (red and blue armour), team frags win, no friendly fire. Bots fill both teams.
+- **Capture the Flag** (online) - take the enemy flag from its base and carry it to yours while your own flag is home.
+  A carrier who dies drops the flag; your team can return it by touching it, and it returns on its own after 20 s.
+Everyone picks a side in the lobby (JOIN RED / JOIN BLUE); the host picks mode, map, bots, skill and limits.
 
-Boosters (new maps only): HASTE, OVERDRIVE (2x damage), REGEN, HIGH JUMP (20 s each), MEGA HEALTH and HEAVY ARMOR
-(up to 200, draining back to 100). Teleporters keep your speed. Map data lives in `src/level.ts`.
+## Maps
+Sealed buildings (Foundry, Crypt, Tower) with ceilings, lifts, jump pads, teleporters and power-ups, plus open-sky maps
+(Iron Cradle, Deep Void, Spire Ring, Twin Bastions, The Ring). Each map has its own mood (lights, fog, colours).
+Lifts move on the shared server clock; step on and ride. Map data lives in `src/level.ts`.
+
+Boosters: HASTE, OVERDRIVE (2x damage), REGEN, HIGH JUMP (20 s each), MEGA HEALTH and HEAVY ARMOR
+(up to 200, draining back to 100).
+
+## Bots
+Bots build a route graph from each map (`src/nav.ts`), grab health, armour, weapons and boosters, retreat when hurt, strafe,
+dodge rockets, ride lifts and use pads and teleporters. In online games the host's device runs the bots.
+
+## Chat and voice
+Quick chat: `Y` (or the chat button) opens 8 phrases. Voice: peer-to-peer, push-to-talk (`V` / mic button) or open mic;
+in team games you only talk to and hear your team. Voice uses a public STUN server (stun.l.google.com) to connect phones.
 

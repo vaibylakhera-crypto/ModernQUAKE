@@ -13,6 +13,7 @@ export interface MatchCfg { map: string; mode: string; bots: number; skill: numb
 export interface FlagState { s: 'base' | 'carried' | 'dropped'; c: number; p: number[] | null }
 /** everything the server says about a room */
 export interface RoomInfo { room: string; host: number; cfg: MatchCfg; state: 'lobby' | 'playing' | 'ended'; endsAt: number; now: number; players: PlayerInfo[]; ts: { 1: number; 2: number }; flags: { 1: FlagState; 2: FlagState } }
+const INTERP_MS = 100;       // other players are drawn this far in the past (smoothness vs latency)
 const PROJECTILE_KINDS = new Set(['nailer', 'rocket', 'plasma', 'splash']);   // victim applies these locally from the replicated projectile
 
 function nameSprite(text: string, color: number): THREE.Sprite {
@@ -26,7 +27,7 @@ function nameSprite(text: string, color: number): THREE.Sprite {
 export class RemotePlayer implements Target {
   id: string; pos = new THREE.Vector3(); radius = 0.42; height = 1.8; alive = true;
   private rig: Dressed | null = null; private holder: THREE.Object3D | null = null; private weapon: WeaponId = 'pistol';
-  private tPos = new THREE.Vector3(); private tYaw = 0; private yaw = 0; private t = Math.random() * 10; private speed = 0; private fall = 0; private fireK = 0; private first = true;
+  private yaw = 0; private t = Math.random() * 10; private speed = 0; private fall = 0; private fireK = 0; private first = true;
   hp = 100;
   constructor(public info: PlayerInfo, private parent: THREE.Object3D, private sendHit: (to: number, dmg: number, dir: THREE.Vector3, kind: string) => void) {
     this.id = 'p' + info.id;
@@ -53,9 +54,31 @@ export class RemotePlayer implements Target {
     if (!this.rig) return; this.holder?.removeFromParent(); this.holder = holdWeapon(this.rig, w);
   }
   setState(p: number[], yawPlayer: number, w: WeaponId, hp: number, dead: boolean) {
-    this.tPos.set(p[0], p[1], p[2]); this.tYaw = yawPlayer + Math.PI; this.hp = hp; this.alive = !dead; this.setWeapon(w);
-    if (this.pos.distanceToSquared(this.tPos) > 36) this.pos.copy(this.tPos);   // teleported / respawned: snap, don't slide across the map
-    if (this.first) { this.pos.copy(this.tPos); this.yaw = this.tYaw; this.first = false; }
+    const yaw = yawPlayer + Math.PI, last = this.snaps[this.snaps.length - 1];
+    // teleported / respawned: start a fresh history so the character jumps instead of sliding across the map
+    if (last && Math.hypot(p[0] - last.x, p[2] - last.z) + Math.abs(p[1] - last.y) > 6) this.snaps.length = 0;
+    this.snaps.push({ t: performance.now(), x: p[0], y: p[1], z: p[2], yaw }); if (this.snaps.length > 20) this.snaps.shift();
+    this.hp = hp; this.alive = !dead; this.setWeapon(w);
+    if (this.first) { this.pos.set(p[0], p[1], p[2]); this.yaw = yaw; this.first = false; }
+  }
+  /** recent position snapshots (arrival time + state): drawn ~100 ms in the past so there are always two real samples to blend */
+  private snaps: { t: number; x: number; y: number; z: number; yaw: number }[] = [];
+  /** the position / facing to show right now, from the snapshot history */
+  private sample() {
+    const S = this.snaps; if (!S.length) return;
+    const rt = performance.now() - INTERP_MS, n = S.length, newest = S[n - 1];
+    let x: number, y: number, z: number, yaw: number;
+    if (rt >= newest.t) {                                         // the data is late: coast on the last velocity for up to 150 ms
+      const prev = S[n - 2] ?? newest, span = Math.max(1, newest.t - prev.t), age = Math.min(150, rt - newest.t);
+      x = newest.x + (newest.x - prev.x) / span * age; z = newest.z + (newest.z - prev.z) / span * age; y = newest.y; yaw = newest.yaw;
+    } else if (rt <= S[0].t) { x = S[0].x; y = S[0].y; z = S[0].z; yaw = S[0].yaw; }
+    else {
+      let i = 0; while (i < n - 2 && S[i + 1].t <= rt) i++;
+      const a = S[i], b = S[i + 1], k = (rt - a.t) / Math.max(1, b.t - a.t);
+      x = a.x + (b.x - a.x) * k; y = a.y + (b.y - a.y) * k; z = a.z + (b.z - a.z) * k;
+      let dy = b.yaw - a.yaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy)); yaw = a.yaw + dy * k;
+    }
+    this.pos.set(x, y, z); this.yaw = yaw;
   }
   flashFire() { this.fireK = 1; }
   private label: THREE.Sprite | null = null;
@@ -68,8 +91,7 @@ export class RemotePlayer implements Target {
   hit(dmg: number, _from: THREE.Vector3, dir: THREE.Vector3, kind: string) { if (!PROJECTILE_KINDS.has(kind)) this.sendHit(this.info.id, dmg, dir, kind); }
   update(dt: number) {
     const bx = this.pos.x, bz = this.pos.z;
-    this.pos.lerp(this.tPos, Math.min(1, dt * 14));
-    let d = this.tYaw - this.yaw; d = Math.atan2(Math.sin(d), Math.cos(d)); this.yaw += d * Math.min(1, dt * 14);
+    this.sample();
     const v = Math.hypot(this.pos.x - bx, this.pos.z - bz) / Math.max(dt, 1e-3) / 8;
     this.speed += (Math.min(1, v) - this.speed) * Math.min(1, dt * 8);
     this.t += dt; this.fireK = Math.max(0, this.fireK - dt * 6);
@@ -155,7 +177,7 @@ export class Net {
   send(o: object) { if (this.ws && this.ws.readyState === 1) this.ws.send(JSON.stringify(o)); }
   /** throttled to ~20 Hz */
   sendState(dt: number, o: { p: number[]; yaw: number; pitch: number; w: string; hp: number; dead: boolean }) {
-    this.acc += dt; if (this.acc < 0.05) return; this.acc = 0;
+    this.acc += dt; if (this.acc < 0.033) return; this.acc = 0;       // ~30 updates per second
     this.send({ t: 'state', p: o.p.map(v => Math.round(v * 100) / 100), yaw: Math.round(o.yaw * 1000) / 1000, pitch: Math.round(o.pitch * 1000) / 1000, w: o.w, hp: Math.round(o.hp), dead: o.dead });
   }
 }

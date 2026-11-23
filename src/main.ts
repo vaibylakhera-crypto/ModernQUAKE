@@ -530,7 +530,10 @@ function syncNetBots() {
   else { setBots([], cfg.skill); for (const p of scoreboard) if (p.bot) addRemote(p); }
   for (const id of [...remotes.keys()]) if (!scoreboard.some(p => p.id === id)) dropRemote(id);
 }
-function drawNet() { netEl.innerHTML = mode === 'online' ? `ROOM <b>${roomCode}</b>${net.online ? '' : ` · ${netState.toUpperCase()}`}` : ''; }
+function drawNet() {
+  const q = net.ping, col = q < 80 ? '#7dff6a' : q < 160 ? '#ffd24a' : '#ff6a58';
+  netEl.innerHTML = mode === 'online' ? `ROOM <b>${roomCode}</b>${net.online ? (q ? ` · <span style="color:${col}">${q} MS</span>` : '') : ` · ${netState.toUpperCase()}`}` : '';
+}
 function reloadInto(params: Record<string, string>) { location.search = new URLSearchParams(params).toString(); }
 function applyRoom(info: RoomInfo) {
   if (info.cfg.map !== MAP) { reloadInto({ room: roomCode, name: myName, map: info.cfg.map }); return false; }
@@ -592,9 +595,10 @@ combat.hooks.foreignTargets = owner => {
   return [];
 };
 combat.hooks.foreignHit = (tg, dmg, owner, weapon) => (tg as Bot).hit(dmg, tg.pos, new THREE.Vector3(), weapon, owner, weapon);
-let botSnapAcc = 0;
+let botSnapAcc = 0, pingAcc = 0;
 function netTick(dt: number) {
   if (mode !== 'online') return;
+  pingAcc += dt; if (pingAcc > 1) { pingAcc = 0; drawNet(); }
   // remote humans as bot targets (host)
   if (isHost()) {
     for (const [id, r] of remotes) {
@@ -604,7 +608,7 @@ function netTick(dt: number) {
       if (!r.alive) t.pos.y = -999;               // dead players are not hunted
     }
     botSnapAcc += dt;
-    if (botSnapAcc >= 0.066 && bots.length) {
+    if (botSnapAcc >= 0.05 && bots.length) {
       botSnapAcc = 0; const R = (v: number) => Math.round(v * 100) / 100;
       net.send({ t: 'bots', l: bots.map(b => ({ id: b.netId, p: [R(b.pos.x), R(b.pos.y), R(b.pos.z)], yaw: Math.round((b.yaw - Math.PI) * 1000) / 1000, w: b.weaponId, hp: Math.round(b.healthPct), dead: !b.alive })) });
     }
