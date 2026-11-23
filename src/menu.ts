@@ -32,6 +32,7 @@ export interface MenuHooks {
     state(): { mode: VoiceMode; volume: number; supported: boolean; error: string; on: boolean };
     setMode(m: VoiceMode): void; setVolume(v: number): void; test(): Promise<boolean>;
   };
+  audio: { musicVolume(): number; setMusicVolume(v: number): void; announcer(): boolean; setAnnouncer(v: boolean): void; openPlaylist(): void };
   chatChannel?: unknown;
 }
 export interface Settings { name: string; sens: number; vol: number; quality: 'low' | 'med' | 'high'; ctl: number; cta: number; vibe: boolean }
@@ -437,7 +438,10 @@ export class Menu {
       <div class="m-col" style="margin-bottom:8px"><button class="m-btn small" data-a="guide">SHOW CONTROLS GUIDE</button></div>` : ''}
       <div class="m-h">VOICE</div>${this.voiceControls()}
       <div class="m-h">AUDIO</div>
-      <div class="m-field"><label>VOLUME · <span data-o="vol">${Math.round(s.vol * 100)}</span>%</label><input class="m-range" type="range" min="0" max="1" step="0.05" data-f="vol" value="${s.vol}"></div>
+      <div class="m-field"><label>EFFECTS VOLUME · <span data-o="vol">${Math.round(s.vol * 100)}</span>%</label><input class="m-range" type="range" min="0" max="1" step="0.05" data-f="vol" value="${s.vol}"></div>
+      <div class="m-field"><label>MUSIC VOLUME · <span data-o="mvol">${Math.round(this.h.audio.musicVolume() * 100)}</span>%</label><input class="m-range" type="range" min="0" max="1" step="0.05" data-f="mvol" value="${this.h.audio.musicVolume()}"></div>
+      <div class="m-field"><label>KILL ANNOUNCER</label><div class="m-seg"><button data-a="ann" data-v="1" class="${this.h.audio.announcer() ? 'on' : ''}">ON</button><button data-a="ann" data-v="0" class="${!this.h.audio.announcer() ? 'on' : ''}">OFF</button></div><div class="m-note">Calls out double kills, killing sprees and first blood.</div></div>
+      <div class="m-col" style="margin-bottom:8px"><button class="m-btn small" data-a="playlist">♪ OPEN PLAYLIST</button></div>
       <div class="m-h">GRAPHICS</div>
       <div class="m-field"><div class="m-seg">${q('low', 'FAST')}${q('med', 'BALANCED')}${q('high', 'BEST')}</div>
         <div class="m-note">FAST suits phones. Changing graphics reloads the game.</div></div>
@@ -455,6 +459,7 @@ export class Menu {
     if (f === 'vol') { this.settings.vol = Number(t.value); save('mq-vol', t.value); out('vol', String(Math.round(this.settings.vol * 100))); }
     if (f === 'ctl' || f === 'cta') { (this.settings as any)[f] = Number(t.value); save('mq-' + f, t.value); out(f, String(Math.round(Number(t.value) * 100))); }
     if (f === 'gsens') { this.h.gyro.setSens(Number(t.value)); out('gsens', Number(t.value).toFixed(1)); }
+    if (f === 'mvol') { this.h.audio.setMusicVolume(Number(t.value)); out('mvol', String(Math.round(Number(t.value) * 100))); }
     if (f === 'vvol') { this.h.voice.setVolume(Number(t.value)); out('vvol', String(Math.round(Number(t.value) * 100))); }
     this.h.settingsChanged(this.settings);
   }
@@ -503,6 +508,8 @@ export class Menu {
         if (n.length < 2) { const e2 = this.el.querySelector('[data-o="werr"]'); if (e2) e2.textContent = 'Pick a name with at least 2 letters (or tap 🎲).'; break; }
         this.settings.name = n; save('mq-name', n); this.h.settingsChanged(this.settings); this.show(this.afterWelcome); break;
       }
+      case 'ann': this.h.audio.setAnnouncer(v === '1'); this.render(); break;
+      case 'playlist': this.h.audio.openPlaylist(); break;
       case 'vibe': this.settings.vibe = v === '1'; save('mq-vibe', v); this.h.settingsChanged(this.settings); this.render(); break;
       case 'guide': this.h.showGuide(); break;
       case 'gyro': this.h.gyro.setMode(v as GyroMode).then(ok => {

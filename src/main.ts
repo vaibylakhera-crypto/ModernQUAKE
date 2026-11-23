@@ -23,6 +23,8 @@ import { WEAPON_ORDER, WEAPON_DEFS } from './weapons';
 import { TouchControls, isTouch as touchDevice, goFullscreen } from './touch';
 import { setupAssets } from './assets';
 import * as sfx from './sfx';
+import { Music } from './music';
+import { Announcer } from './announcer';
 import { Gyro } from './gyro';
 import { LiftSystem } from './lifts';
 import * as navMod from './nav';
@@ -174,7 +176,7 @@ let touchPlaying = false;
 const locked = () => touchPlaying || document.pointerLockElement === renderer.domElement;
 let lockedAt = 0, lockExitAt = 0;
 function resume() {
-  sfx.unlock();                    // audio may only start from a user gesture (iOS)
+  sfx.unlock(); music.start();     // audio may only start from a user gesture (iOS)
   if (mode === 'title') return;
   menu.hide(); menu.showScores(false);
   if (TOUCH) { goFullscreen(); touchPlaying = true; touch?.show(true); if (!guideSeen()) setTimeout(() => showGuide(), 250); return; }
@@ -200,6 +202,8 @@ addEventListener('keydown', e => {
     if (e.code === 'KeyM' && !e.repeat) { void voice.toggleOpen(); return; }
     if (qchatOpen && /^Digit[1-8]$/.test(e.code)) { sendQuick(QUICK[Number(e.code.slice(5)) - 1].k); return; }
   }
+  if (locked() && e.code === 'KeyP' && !e.repeat) { music.toggle(); return; }
+  if (locked() && e.code === 'KeyN' && !e.repeat) { music.next(); return; }
   if (e.code === 'Tab') { e.preventDefault(); if (locked()) { pushView(); menu.showScores(true); } return; }
   if (e.repeat) return;           // holding space never auto-hops
   keys.add(e.code);
@@ -220,6 +224,8 @@ if (TOUCH) {
     nextWeapon() { vm.select(loadout.step(vm.target, 1)); },
     pause() { touchPlaying = false; touch!.show(false); openPause(); },
     chat() { toggleQuick(); },
+    music() { toggleMusicPanel(); },
+    playpause() { music.toggle(); },
     mic(on) { if (voice.mode === 'open') { if (on) void voice.toggleOpen(); } else void voice.press(on); },
   });
   touch.show(false);
@@ -307,6 +313,16 @@ const combat = new Combat(scene, {
 const pickupSys = new Pickups(scene);
 const hitEl = document.getElementById('hit')!; let hitT = 0;
 const crossEl = document.getElementById('cross')!; let crossKick = 0, crossGap = 6;
+// ---- music + announcer ----
+const music = new Music();
+const announcer = new Announcer(document.getElementById('announce')!);
+announcer.onSpeak = () => music.duck();
+music.onNow = t => say(`♪ ${t.name}`);
+// browsers only allow sound after a tap / key press: start audio and music on the very first one, wherever it lands
+for (const ev of ['pointerdown', 'touchstart', 'keydown'] as const) addEventListener(ev, () => { sfx.unlock(); music.start(); }, { capture: true, once: true });
+const recentKills: number[] = [];                 // when kills happened lately (drives the music's intensity)
+let matchStartMs = performance.now();
+
 // ───────────── sessions: title screen · solo match · online room ─────────────
 const qs = new URLSearchParams(location.search);
 let roomCode = (qs.get('room') || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12);
@@ -396,6 +412,7 @@ function soloKill(killerKey: string, victimKey: string) {
   const kt = soloTeamOf(killerKey), vt = soloTeamOf(victimKey);
   if (kt && kt === vt) { refreshFrags(); return; }
   score(killerKey).frags++; if (cfg.mode === 'tdm' && kt) ts[kt as 1 | 2]++;
+  if (killerKey === 'me') announcer.kill();
   refreshFrags(); checkSoloEnd();
 }
 
@@ -420,9 +437,9 @@ function refreshFrags() {
 const nowServer = () => Date.now() + timeOffset;
 const remaining = () => endsAt ? Math.max(0, (endsAt - nowServer()) / 1000) : -1;
 function startSoloMatch() {
-  ts = { 1: 0, 2: 0 }; soloScore.clear(); matchState = 'playing'; endsAt = cfg.time ? Date.now() + cfg.time * 60000 : 0; timeOffset = 0;
+  announcer.reset(); matchStartMs = performance.now(); ts = { 1: 0, 2: 0 }; soloScore.clear(); matchState = 'playing'; endsAt = cfg.time ? Date.now() + cfg.time * 60000 : 0; timeOffset = 0;
   player.respawn(); yaw = player.yaw; pitch = 0; loadout.reset(); vm.show('pistol'); lastBar = '';
-  for (const b of bots) b.respawn(); menu.hideEnd(); refreshFrags(); say('FIGHT!'); pushView();
+  for (const b of bots) b.respawn(); menu.hideEnd(); refreshFrags(); announcer.say('FIGHT', '', 2); pushView();
 }
 let soloEndTimer = 0;
 function checkSoloEnd() {
@@ -441,6 +458,13 @@ let matchAcc = 0;
 function matchTick(dt: number) {
   matchAcc += dt; if (matchAcc < 0.25) return; matchAcc = 0;
   refreshFrags();
+  { // how heated is the match? time used, how close someone is to winning, and how many kills just happened
+    const now = performance.now(); while (recentKills.length && now - recentKills[0] > 22000) recentKills.shift();
+    const total = cfg.time * 60000, prog = total ? Math.min(1, (now - matchStartMs) / total) : Math.min(1, (now - matchStartMs) / 600000);
+    const lead = teamMode() ? Math.max(ts[1], ts[2]) : Math.max(0, ...board().map(p => p.frags)), limit = cfg.mode === 'ctf' ? cfg.caps : cfg.frag;
+    const heat = Math.min(1, recentKills.length / 6), toWin = limit ? Math.min(1, lead / limit) : 0;
+    music.setIntensity(matchState === 'playing' ? Math.min(1, 0.12 + 0.36 * prog + 0.3 * toWin + 0.3 * heat) : 0.14);
+  }
   if (mode === 'solo') checkSoloEnd();
   let text = '';
   if (mode !== 'title') {
@@ -552,7 +576,7 @@ const net = new Net({
   leave(id) { const r = remotes.get(id); if (r) say(`${r.info.name} LEFT`); dropRemote(id); scoreboard = scoreboard.filter(p => p.id !== id); speaking.delete(id); drawSpeakers(); pushView(); syncVoicePeers(); },
   room(kind, info) {
     if (!applyRoom(info)) return;
-    if (kind === 'start') { menu.hideEnd(); player.respawn(); yaw = player.yaw; pitch = 0; loadout.reset(); vm.show('pistol'); lastBar = ''; for (const b of bots) b.respawn(); say('FIGHT!'); sfx.kill(); }
+    if (kind === 'start') { menu.hideEnd(); player.respawn(); yaw = player.yaw; pitch = 0; loadout.reset(); vm.show('pistol'); lastBar = ''; for (const b of bots) b.respawn(); announcer.reset(); matchStartMs = performance.now(); announcer.say('FIGHT', '', 2); }
     if (kind === 'lobby') { menu.hideEnd(); say('WARMUP'); }
   },
   end(b, winner, _why, next, team, tsv) { matchState = 'ended'; scoreboard = b; endsAt = 0; if (tsv) ts = tsv; menu.showEnd(b, winner, net.id, next, team ?? 0, tsv ?? ts); refreshFrags(); pushView(); },
@@ -581,7 +605,7 @@ const net = new Net({
     const weapon = (w && w in WEAPON_DEFS ? w : '') as WeaponId | '';
     feed(k && k !== v ? k.name : '', weapon, v.name, k ? k.id === net.id : false, v.id === net.id, !k || k === v);
     if (id !== net.id) {
-      if (k && by === net.id) { say(`YOU FRAGGED ${v.name}`); if (performance.now() - localKillAt > 800) { sfx.kill(); killMark(); } }
+      if (k && by === net.id) { say(`YOU FRAGGED ${v.name}`); announcer.kill(); if (performance.now() - localKillAt > 800) { sfx.kill(); killMark(); } }
       else say(k ? `${k.name} FRAGGED ${v.name}` : `${v.name} DIED`);
     }
   },
@@ -646,8 +670,38 @@ function onFlagEvent(ev: any) {
   if (ev.k === 'take') { say(ev.by === net.id ? 'YOU HAVE THE FLAG! GET HOME' : `${who} TOOK THE ${fn} FLAG`); sfx.powerup(); }
   else if (ev.k === 'drop') say(`${fn} FLAG DROPPED`);
   else if (ev.k === 'return') say(ev.why === 'cap' ? `${TEAMS[3 - ev.f].name} CAPTURED THE FLAG!` : `${fn} FLAG RETURNED`);
-  if (ev.k === 'return' && ev.why === 'cap') sfx.kill();
+  if (ev.k === 'return' && ev.why === 'cap') { sfx.kill(); announcer.say(`${TEAMS[3 - ev.f].name} TEAM SCORES`, '', 3); }
 }
+
+// ---- playlist panel ----
+const mpanel = document.getElementById('mpanel')!, mfile = document.createElement('input');
+mfile.type = 'file'; mfile.accept = 'audio/*'; mfile.multiple = true; mfile.style.display = 'none'; document.body.appendChild(mfile);
+mfile.addEventListener('change', () => { if (mfile.files?.length) void music.addFiles(mfile.files).then(() => { mfile.value = ''; renderMusic(); }); });
+function renderMusic() {
+  touch?.setPlaying(music.playing);
+  if (!mpanel.classList.contains('open')) return;
+  const row = (t: { id: string; name: string; sub: string; kind: string }) => `<div class="row ${t.id === music.current.id && music.playing ? 'on' : ''}" data-play="${t.id}"><i>${t.id === music.current.id && music.playing ? '♪' : '▶'}</i><div><b>${esc(t.name)}</b><span>${esc(t.sub)}</span></div>${t.kind === 'file' ? `<u data-del="${t.id}" title="Remove">✕</u>` : ''}</div>`;
+  const all = music.tracks();
+  mpanel.innerHTML = `<h3><span>♪ PLAYLIST</span><button class="mx" data-x="1">✕</button></h3>
+    <div class="tr"><button data-prev="1">⏮</button><button class="big" data-toggle="1">${music.playing ? '⏸ PAUSE' : '▶ PLAY'}</button><button data-next="1">⏭</button></div>
+    <div class="sec">BUILT-IN</div>${all.filter(t => t.kind !== 'file').map(row).join('')}
+    <div class="sec">YOUR MUSIC</div>${all.filter(t => t.kind === 'file').map(row).join('') || '<div class="note">Nothing yet. Add songs from your phone: they stay on this device and play like any other track.</div>'}
+    <div style="margin-top:8px"><button class="add" data-add="1">＋ ADD YOUR OWN MUSIC</button></div>
+    <div class="sec">VOLUME</div><input type="range" min="0" max="1" step="0.05" value="${music.volume}" data-vol="1">
+    <div class="note">The BATTLE SCORE starts calm and builds with the match: more drums, snare rolls and finally the full beat as the fight heats up.</div>`;
+}
+function toggleMusicPanel(force?: boolean) { const open = force ?? !mpanel.classList.contains('open'); mpanel.classList.toggle('open', open); if (open) renderMusic(); }
+music.onChange(() => renderMusic());
+mpanel.addEventListener('click', e => {
+  const t = e.target as HTMLElement, d = (k: string) => t.closest(`[data-${k}]`) as HTMLElement | null;
+  if (d('x')) toggleMusicPanel(false);
+  else if (d('del')) void music.remove(d('del')!.dataset.del!);
+  else if (d('play')) music.play(d('play')!.dataset.play!);
+  else if (d('toggle')) music.toggle(); else if (d('prev')) music.next(-1); else if (d('next')) music.next();
+  else if (d('add')) mfile.click();
+});
+mpanel.addEventListener('input', e => { const t = e.target as HTMLInputElement; if (t.dataset.vol) music.setVolume(Number(t.value)); });
+for (const ev of ['touchstart', 'touchmove', 'touchend', 'pointerdown', 'mousedown'] as const) mpanel.addEventListener(ev, e => e.stopPropagation(), { passive: true });
 
 // ---- quick chat + voice ----
 const esc = (t: string) => String(t).replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
@@ -743,6 +797,11 @@ const menu = new Menu({
     }
   },
   showGuide: () => showGuide(true),
+  audio: {
+    musicVolume: () => music.volume, setMusicVolume: v => music.setVolume(v),
+    announcer: () => announcer.enabled, setAnnouncer: v => announcer.setEnabled(v),
+    openPlaylist: () => toggleMusicPanel(true),
+  },
 });
 sfx.setVolume(menu.settings.vol);
 applyControlLook(menu.settings.ctl, menu.settings.cta);
@@ -767,7 +826,7 @@ function die(why: string) {
     feed(by === 'SELF' || !by ? '' : nameOf(by), weapon, myName, false, true, by === 'SELF' || !by);
     if (mode === 'solo') soloKill(by === 'SELF' || !by ? '' : by, 'me');
   }
-  killer.who = ''; sfx.died(); refreshFrags();
+  killer.who = ''; sfx.died(); announcer.died(); refreshFrags();
   say(why === 'EXPLODED' ? 'YOU BLEW UP' : why === 'FELL' ? 'YOU FELL' : 'YOU DIED'); player.respawn(); yaw = player.yaw; pitch = 0;
   loadout.reset(); vm.show('pistol'); lastBar = ''; clearBoosters();
 }
@@ -812,6 +871,7 @@ function drawNumbers(dt: number) {
 // kill feed (top right): KILLER [WEAPON] VICTIM, newest on top, fades after 5 s
 const feedEl = document.getElementById('feed')!;
 function feed(killerName: string, weapon: WeaponId | '', victim: string, meKiller: boolean, meVictim: boolean, selfOrWorld: boolean) {
+  recentKills.push(performance.now());
   const row = document.createElement('div'); row.className = 'kf' + (meKiller ? ' mek' : '') + (meVictim ? ' mev' : '');
   const esc = (t: string) => t.replace(/[&<>"]/g, c => `&#${c.charCodeAt(0)};`);
   const wcol = weapon ? '#' + WEAPON_DEFS[weapon].color.toString(16).padStart(6, '0') : '#9ab';
@@ -966,4 +1026,4 @@ function frame(now: number) {
 requestAnimationFrame(frame);
 
 // dev/test hook
-(window as any).__game = { bots, net, remotes, menu, stars, scene, sfx, riders, nav: navMod, voice, get ts() { return ts; }, myTeam, flagSt: () => flagSt, teamOfOwner, soloKill, grantBooster, boost, liftSys, lifts: __lifts, level: { pads: levelPads, teleporters: levelTeleporters, boxes, pickups: levelPickups, spawns: levelSpawns }, get mode() { return mode; }, get matchState() { return matchState; }, scores: () => board(), doFire, player, camera, vm, loadout, combat, pickupSys, targets, say, die, renderer, world, Q, get scale() { return renderScale; }, setLook: (y: number, p: number) => { yaw = y; pitch = p; }, PM };
+(window as any).__game = { bots, net, remotes, menu, stars, scene, sfx, Music, music, announcer, feed, riders, nav: navMod, voice, get ts() { return ts; }, myTeam, flagSt: () => flagSt, teamOfOwner, soloKill, grantBooster, boost, liftSys, lifts: __lifts, level: { pads: levelPads, teleporters: levelTeleporters, boxes, pickups: levelPickups, spawns: levelSpawns }, get mode() { return mode; }, get matchState() { return matchState; }, scores: () => board(), doFire, player, camera, vm, loadout, combat, pickupSys, targets, say, die, renderer, world, Q, get scale() { return renderScale; }, setLook: (y: number, p: number) => { yaw = y; pitch = p; }, PM };

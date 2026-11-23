@@ -11,6 +11,7 @@ import type { WeaponId } from './weapons';
 let ctx: AudioContext | BaseAudioContext | null = null;
 let master: AudioNode | null = null;
 let verb: ConvolverNode | null = null;
+let slapIn: AudioNode | null = null;
 let noise: AudioBuffer | null = null;
 let volume = 0.7;
 let live = 0;                                      // voices currently playing (to keep phones from choking)
@@ -33,6 +34,9 @@ function buildGraph(c: BaseAudioContext, out: AudioNode) {
   const len = Math.floor(c.sampleRate * 0.9), ir = c.createBuffer(2, len, c.sampleRate);
   for (let ch = 0; ch < 2; ch++) { const a = ir.getChannelData(ch); let lp = 0; for (let i = 0; i < len; i++) { lp += ((Math.random() * 2 - 1) - lp) * 0.2; a[i] = lp * Math.pow(1 - i / len, 2.6); } }
   verb = c.createConvolver(); verb.buffer = ir; const vg = c.createGain(); vg.gain.value = 0.55; verb.connect(vg).connect(masterGain);
+  // a single quick echo off a nearby wall (about 85 ms), dulled: gives gunfire its sense of place
+  const slap = c.createDelay(0.5); slap.delayTime.value = 0.085; const sl = c.createBiquadFilter(); sl.type = 'lowpass'; sl.frequency.value = 2400; const sg = c.createGain(); sg.gain.value = 0.7;
+  slap.connect(sl).connect(sg).connect(masterGain); slapIn = slap;
 }
 export function unlock() {
   try {
@@ -45,123 +49,166 @@ export function unlock() {
 }
 export function setVolume(v: number) { volume = v; if (masterGain) masterGain.gain.value = v; try { localStorage.setItem('mq-vol', String(v)); } catch { /* ignore */ } }
 export function getVolume() { return volume; }
-const ready = () => !!(ctx && master && noise && verb && ((ctx as AudioContext).state === undefined || (ctx as AudioContext).state === 'running') && live < 28);
+/** the shared audio context (music uses it so there is only one) */
+export function audioContext(): AudioContext | null { return ctx as AudioContext | null; }
+const ready = () => !!(ctx && master && noise && verb && slapIn && ((ctx as AudioContext).state === undefined || (ctx as AudioContext).state === 'running') && live < 28);
 
 // ───────── building blocks ─────────
 const jit = (amt = 0.06) => 1 + (Math.random() * 2 - 1) * amt;
-/** a mixing bus for one sound: level, stereo position and how much goes to the reverb */
-function bus(vol: number, pan: number, rev: number): GainNode {
+/** a mixing bus for one sound: level, stereo position, room reverb amount and a slap echo (the bounce off a nearby wall) */
+function bus(vol: number, pan: number, rev: number, slap = 0): GainNode {
   const c = ctx!, g = c.createGain(); g.gain.value = vol;
   const p = (c as any).createStereoPanner ? (c as AudioContext).createStereoPanner() : null;
   if (p) { p.pan.value = Math.max(-1, Math.min(1, pan)); g.connect(p); p.connect(master!); } else g.connect(master!);
-  if (rev > 0) { const s = c.createGain(); s.gain.value = rev; g.connect(s); s.connect(verb!); }
+  if (rev > 0) { const r = c.createGain(); r.gain.value = rev; g.connect(r); r.connect(verb!); }
+  if (slap > 0 && slapIn) { const r = c.createGain(); r.gain.value = slap; g.connect(r); r.connect(slapIn); }
   return g;
 }
 function env(g: GainNode, t: number, atk: number, peak: number, dec: number) {
   g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(peak, t + atk); g.gain.exponentialRampToValueAtTime(0.0001, t + atk + dec);
 }
 function done(node: AudioScheduledSourceNode, end: number) { live++; node.onended = () => { live--; }; node.stop(end); }
-/** filtered noise: sweeps its filter from f0 to f1 while fading out */
-function nz(dest: AudioNode, o: { t?: number; dur: number; peak: number; type: BiquadFilterType; f0: number; f1: number; q?: number; atk?: number }) {
-  const c = ctx!, t = c.currentTime + (o.t ?? 0);
-  const s = c.createBufferSource(); s.buffer = noise!; s.playbackRate.value = jit(0.3); s.loop = true;
-  const f = c.createBiquadFilter(); f.type = o.type; f.Q.value = o.q ?? 0.8; f.frequency.setValueAtTime(o.f0, t); f.frequency.exponentialRampToValueAtTime(Math.max(30, o.f1), t + o.dur);
-  const g = c.createGain(); env(g, t, o.atk ?? 0.002, o.peak, o.dur);
-  s.connect(f).connect(g).connect(dest); s.start(t, Math.random() * 1.2); done(s, t + o.dur + (o.atk ?? 0.002) + 0.05);
+let distCurve: Float32Array<ArrayBuffer> | null = null;
+/** hard clipping curve: turns a clean noise burst into a gritty, barking "crack" */
+function dist(c: BaseAudioContext, amount = 6): WaveShaperNode {
+  if (!distCurve) { distCurve = new Float32Array(1024); for (let i = 0; i < 1024; i++) { const x = (i / 1023) * 2 - 1; distCurve[i] = Math.tanh(x * 6) ; } }
+  const w = c.createWaveShaper(); w.curve = distCurve; w.oversample = '2x'; void amount; return w;
 }
-/** a pitched tone that glides from f0 to f1 */
+/** filtered noise. `grit` runs it through the clipper; `am` amplitude-modulates it (Hz) for a buzzy / sizzling texture */
+function nz(dest: AudioNode, o: { t?: number; dur: number; peak: number; type: BiquadFilterType; f0: number; f1?: number; q?: number; atk?: number; grit?: boolean; am?: number }) {
+  const c = ctx!, t = c.currentTime + (o.t ?? 0), f1 = o.f1 ?? o.f0;
+  const s = c.createBufferSource(); s.buffer = noise!; s.playbackRate.value = jit(0.3); s.loop = true;
+  const f = c.createBiquadFilter(); f.type = o.type; f.Q.value = o.q ?? 0.8; f.frequency.setValueAtTime(o.f0, t); if (f1 !== o.f0) f.frequency.exponentialRampToValueAtTime(Math.max(30, f1), t + o.dur);
+  const g = c.createGain(); env(g, t, o.atk ?? 0.001, o.peak, o.dur);
+  let node: AudioNode = f; s.connect(f);
+  if (o.grit) { const w = dist(c); f.connect(w); node = w; }
+  if (o.am) {                                                      // amplitude modulation: sizzle / buzz
+    const am = c.createGain(); am.gain.value = 0.55; const lfo = c.createOscillator(), lg = c.createGain(); lfo.frequency.value = o.am * jit(0.1); lg.gain.value = 0.45; lfo.connect(lg).connect(am.gain);
+    node.connect(am); node = am; lfo.start(t); done(lfo, t + o.dur + 0.1);
+  }
+  node.connect(g).connect(dest); s.start(t, Math.random() * 1.2); done(s, t + o.dur + (o.atk ?? 0.001) + 0.05);
+}
+/** a low "punch": a sine that drops only a little and quickly (a pressure thump, not a laser sweep) */
+function thump(dest: AudioNode, o: { t?: number; dur: number; peak: number; f: number; drop?: number }) {
+  const c = ctx!, t = c.currentTime + (o.t ?? 0), osc = c.createOscillator(); osc.type = 'sine';
+  osc.frequency.setValueAtTime(o.f * (o.drop ?? 1.5), t); osc.frequency.exponentialRampToValueAtTime(o.f, t + Math.min(0.05, o.dur * 0.5));
+  const g = c.createGain(); env(g, t, 0.002, o.peak, o.dur); const w = dist(c); const wg = c.createGain(); wg.gain.value = 0.7;
+  osc.connect(w).connect(wg).connect(g).connect(dest); osc.start(t); done(osc, t + o.dur + 0.05);
+}
+/** a steady (non-gliding) ring: metal tinks, rail whine */
+function ring(dest: AudioNode, o: { t?: number; dur: number; peak: number; f: number; type?: OscillatorType }) {
+  const c = ctx!, t = c.currentTime + (o.t ?? 0), osc = c.createOscillator(); osc.type = o.type ?? 'sine'; osc.frequency.value = o.f;
+  const g = c.createGain(); env(g, t, 0.001, o.peak, o.dur); osc.connect(g).connect(dest); osc.start(t); done(osc, t + o.dur + 0.05);
+}
+/** a gliding tone: only for non-gun sounds (pickups, teleporters, power-ups) */
 function tn(dest: AudioNode, o: { t?: number; dur: number; peak: number; type: OscillatorType; f0: number; f1: number; atk?: number }) {
   const c = ctx!, t = c.currentTime + (o.t ?? 0), osc = c.createOscillator(); osc.type = o.type;
   osc.frequency.setValueAtTime(o.f0, t); osc.frequency.exponentialRampToValueAtTime(Math.max(20, o.f1), t + o.dur);
   const g = c.createGain(); env(g, t, o.atk ?? 0.002, o.peak, o.dur);
   osc.connect(g).connect(dest); osc.start(t); done(osc, t + o.dur + (o.atk ?? 0.002) + 0.05);
 }
+/** a spent brass casing hitting the floor: a couple of tiny, fast metallic pings */
+function casing(dest: AudioNode, t0: number, peak = 0.07) {
+  for (let i = 0; i < 3; i++) ring(dest, { t: t0 + i * (0.045 + Math.random() * 0.03), dur: 0.05, peak: peak / (1 + i * 0.7), f: (4300 + Math.random() * 2400) * (1 - i * 0.08), type: 'sine' });
+}
 
 // ───────── weapons ─────────
 const lastAt: Record<string, number> = {};
 const gate = (k: string, ms: number) => { const n = performance.now(); if (n - (lastAt[k] ?? 0) < ms) return false; lastAt[k] = n; return true; };
 
-/** a weapon firing. vol < 1 for other players' shots (distance), pan -1 (left) .. 1 (right) */
+/**
+ * A weapon firing. Built like a real firearm recording: CRACK (clipped noise transient) + BARK (mid band that survives phone speakers)
+ * + BODY (low noise and a pressure thump) + TAIL (room reverb and a wall slap), plus mechanical details. Almost no pitch sweeps.
+ * vol < 1 for other players' shots (distance), pan -1 (left) .. 1 (right).
+ */
 export function shot(id: WeaponId, vol = 1, pan = 0) {
   if (!ready() || vol < 0.03) return;
-  const j = jit();
+  const j = jit(0.1);
   switch (id) {
-    case 'pistol': {   // sharp snap, tight punch, short room tail
-      const b = bus(0.95 * vol, pan, 0.34);
-      nz(b, { dur: 0.06, peak: 0.85, type: 'bandpass', f0: 4200, f1: 1100, q: 0.7 });
-      tn(b, { dur: 0.11, peak: 0.7, type: 'sine', f0: 300 * j, f1: 70 });
-      tn(b, { dur: 0.03, peak: 0.16, type: 'square', f0: 2100 * j, f1: 500 });
-      nz(b, { t: 0.01, dur: 0.22, peak: 0.16, type: 'lowpass', f0: 3000, f1: 300 });
+    case 'pistol': {   // a dry, punchy 9mm: crack, bark, short body, one brass tinkle
+      const b = bus(1.0 * vol, pan, 0.3, 0.22);
+      nz(b, { dur: 0.045, peak: 0.95, type: 'bandpass', f0: 2600 * j, f1: 1500, q: 0.7, grit: true });
+      nz(b, { dur: 0.07, peak: 0.75, type: 'bandpass', f0: 950 * j, f1: 600, q: 0.8, grit: true });
+      nz(b, { dur: 0.1, peak: 0.6, type: 'lowpass', f0: 520, f1: 220, q: 0.7 });
+      thump(b, { dur: 0.1, peak: 0.55, f: 110 * j });
+      nz(b, { t: 0.012, dur: 0.2, peak: 0.16, type: 'lowpass', f0: 2600, f1: 400 });
+      casing(b, 0.16 + Math.random() * 0.1);
       break;
     }
-    case 'scatter': {  // heavy boom, wide noise blast, then the pump action
-      const b = bus(1.0 * vol, pan, 0.5);
-      nz(b, { dur: 0.1, peak: 0.95, type: 'bandpass', f0: 3000, f1: 500, q: 0.6 });
-      tn(b, { dur: 0.42, peak: 0.95, type: 'sine', f0: 120 * j, f1: 34 });
-      nz(b, { dur: 0.5, peak: 0.6, type: 'lowpass', f0: 1800, f1: 120 });
-      nz(b, { t: 0.02, dur: 0.3, peak: 0.18, type: 'bandpass', f0: 2200, f1: 700, q: 0.7 });
-      nz(b, { t: 0.4, dur: 0.05, peak: 0.3, type: 'bandpass', f0: 1400, f1: 900, q: 2 });          // pump: clack
-      tn(b, { t: 0.4, dur: 0.045, peak: 0.16, type: 'square', f0: 330, f1: 190 });
-      nz(b, { t: 0.5, dur: 0.05, peak: 0.28, type: 'bandpass', f0: 1000, f1: 1600, q: 2 });       // pump: forward
+    case 'scatter': {  // a shotgun blast: huge broadband crack, heavy body, then pump-action and a shell hitting the floor
+      const b = bus(1.05 * vol, pan, 0.55, 0.35);
+      nz(b, { dur: 0.1, peak: 1.0, type: 'highpass', f0: 700, f1: 1200, q: 0.5, grit: true });
+      nz(b, { dur: 0.16, peak: 0.9, type: 'bandpass', f0: 1100 * j, f1: 450, q: 0.5, grit: true });
+      nz(b, { dur: 0.3, peak: 0.95, type: 'lowpass', f0: 650, f1: 130, q: 0.6 });
+      thump(b, { dur: 0.35, peak: 0.95, f: 70 * j, drop: 1.8 });
+      nz(b, { t: 0.03, dur: 0.55, peak: 0.3, type: 'lowpass', f0: 2200, f1: 180 });
+      nz(b, { t: 0.42, dur: 0.035, peak: 0.45, type: 'bandpass', f0: 1500, f1: 1500, q: 3 });             // pump back
+      ring(b, { t: 0.42, dur: 0.05, peak: 0.1, f: 2100, type: 'square' });
+      nz(b, { t: 0.54, dur: 0.04, peak: 0.5, type: 'bandpass', f0: 2600, f1: 2600, q: 3 });               // pump forward
+      casing(b, 0.62, 0.09);
       break;
     }
-    case 'nailer': {   // a crisp mechanical tick with a small thump; pitch varies so a burst rattles
-      if (!gate('nailer', 36)) return;
-      const b = bus(1.0 * vol, pan, 0.12);
-      nz(b, { dur: 0.03, peak: 0.55, type: 'bandpass', f0: 2600 * j, f1: 1400, q: 0.9 });
-      tn(b, { dur: 0.055, peak: 0.7, type: 'triangle', f0: 200 * jit(0.12), f1: 80 });
-      tn(b, { dur: 0.025, peak: 0.1, type: 'square', f0: 1700 * j, f1: 1100 });
+    case 'nailer': {   // a rapid dry machine-gun clatter: tak + thunk + metal tick. Centre frequencies wobble so a burst chatters.
+      if (!gate('nailer', 34)) return;
+      const b = bus(1.05 * vol, pan, 0.1, 0.14);
+      nz(b, { dur: 0.022, peak: 0.85, type: 'bandpass', f0: 3000 * jit(0.14), f1: 1700, q: 1.1, grit: true });
+      nz(b, { dur: 0.045, peak: 0.7, type: 'bandpass', f0: 800 * jit(0.12), f1: 500, q: 0.9, grit: true });
+      nz(b, { dur: 0.05, peak: 0.45, type: 'lowpass', f0: 420, f1: 200 });
+      thump(b, { dur: 0.05, peak: 0.4, f: 140 * j });
+      nz(b, { t: 0.004, dur: 0.012, peak: 0.25, type: 'bandpass', f0: 5600 * jit(0.1), f1: 5600, q: 6 });  // bolt tick
+      if (Math.random() < 0.35) casing(b, 0.1 + Math.random() * 0.1, 0.04);
       break;
     }
-    case 'rocket': {   // launch thump, rushing whoosh, ignition crackle
-      const b = bus(1.0 * vol, pan, 0.5);
-      tn(b, { dur: 0.35, peak: 0.85, type: 'sine', f0: 125 * j, f1: 42 });
-      nz(b, { atk: 0.04, dur: 0.7, peak: 0.55, type: 'bandpass', f0: 350, f1: 1900, q: 1.1 });
-      nz(b, { dur: 0.16, peak: 0.4, type: 'highpass', f0: 2200, f1: 900 });
-      nz(b, { t: 0.05, dur: 0.5, peak: 0.22, type: 'lowpass', f0: 1200, f1: 150 });
+    case 'rocket': {   // launcher: a big pressure "thoomp", a rushing exhaust whoosh, and a metallic latch
+      const b = bus(1.05 * vol, pan, 0.55, 0.3);
+      nz(b, { dur: 0.3, peak: 1.0, type: 'lowpass', f0: 500, f1: 90, q: 0.6, grit: true });
+      thump(b, { dur: 0.4, peak: 0.95, f: 62 * j, drop: 2 });
+      nz(b, { atk: 0.05, dur: 0.75, peak: 0.55, type: 'bandpass', f0: 500, f1: 2600, q: 0.7 });
+      nz(b, { dur: 0.09, peak: 0.55, type: 'bandpass', f0: 1400, f1: 900, q: 0.7, grit: true });
+      nz(b, { t: 0.04, dur: 0.06, peak: 0.3, type: 'bandpass', f0: 1800, f1: 1800, q: 5 });
       break;
     }
-    case 'rail': {     // electric zap up, a ringing ping, a heavy crack and a deep sub
-      const b = bus(1.0 * vol, pan, 0.55);
-      tn(b, { dur: 0.13, peak: 0.34, type: 'sawtooth', f0: 160, f1: 3400 });
-      tn(b, { t: 0.02, dur: 0.6, peak: 0.36, type: 'sine', f0: 2400 * j, f1: 650 });
-      nz(b, { dur: 0.11, peak: 0.6, type: 'highpass', f0: 3800, f1: 1800 });
-      tn(b, { dur: 0.35, peak: 0.6, type: 'sine', f0: 95, f1: 38 });
-      tn(b, { t: 0.03, dur: 0.4, peak: 0.12, type: 'triangle', f0: 4400 * j, f1: 3000 });
+    case 'rail': {     // railgun: a sharp electric crack, a heavy low boom, and a ringing metallic whine (steady pitch)
+      const b = bus(1.05 * vol, pan, 0.6, 0.3);
+      nz(b, { dur: 0.07, peak: 1.0, type: 'highpass', f0: 2600, f1: 1800, q: 0.6, grit: true });
+      nz(b, { dur: 0.18, peak: 0.7, type: 'bandpass', f0: 4200, f1: 2200, q: 1.2, am: 130 });
+      thump(b, { dur: 0.5, peak: 0.9, f: 58, drop: 1.7 });
+      nz(b, { dur: 0.25, peak: 0.6, type: 'lowpass', f0: 700, f1: 120 });
+      ring(b, { dur: 0.9, peak: 0.2, f: 1760 * j });
+      ring(b, { dur: 0.7, peak: 0.12, f: 2640 * j, type: 'triangle' });
       break;
     }
-    case 'plasma': {   // a rounded "pew": fast pitch drop with a fizzy edge
+    case 'plasma': {   // plasma: a fizzing, sizzling spit with a soft thump (Quake style), no glide
       if (!gate('plasma', 40)) return;
-      const b = bus(1.1 * vol, pan, 0.3);
-      tn(b, { dur: 0.15, peak: 0.45, type: 'sine', f0: 1900 * j, f1: 330 });
-      tn(b, { dur: 0.11, peak: 0.14, type: 'square', f0: 950 * j, f1: 240 });
-      nz(b, { dur: 0.06, peak: 0.14, type: 'bandpass', f0: 3600, f1: 1800, q: 1.5 });
-      tn(b, { dur: 0.18, peak: 0.28, type: 'sine', f0: 140, f1: 70 });
+      const b = bus(1.05 * vol, pan, 0.25, 0.12);
+      nz(b, { dur: 0.13, peak: 0.85, type: 'bandpass', f0: 3300 * j, f1: 2400, q: 1.6, am: 62, grit: true });
+      nz(b, { dur: 0.05, peak: 0.45, type: 'highpass', f0: 5200, f1: 4000 });
+      nz(b, { dur: 0.1, peak: 0.6, type: 'bandpass', f0: 900, f1: 600, q: 0.9 });
+      thump(b, { dur: 0.1, peak: 0.55, f: 120 * j });
       break;
     }
-    case 'arc': {      // a crackling electric buzz (throttled: it fires 20 times a second)
-      if (!gate('arc', 110)) return;
-      const b = bus(1.3 * vol, pan, 0.2);
-      tn(b, { dur: 0.13, peak: 0.28, type: 'sawtooth', f0: 105 * jit(0.15), f1: 80 });
-      nz(b, { dur: 0.13, peak: 0.2, type: 'bandpass', f0: 2000 * j, f1: 1300, q: 3 });
-      nz(b, { t: Math.random() * 0.08, dur: 0.02, peak: 0.22, type: 'bandpass', f0: 3600, f1: 2800, q: 1.2 });
+    case 'arc': {      // lightning gun: crackling electrical discharge (throttled: it fires many times a second)
+      if (!gate('arc', 100)) return;
+      const b = bus(1.2 * vol, pan, 0.2, 0.1);
+      nz(b, { dur: 0.12, peak: 0.7, type: 'bandpass', f0: 2300 * j, f1: 1500, q: 2.2, am: 95, grit: true });
+      nz(b, { dur: 0.12, peak: 0.45, type: 'lowpass', f0: 500, f1: 300, am: 55 });
+      for (let i = 0; i < 3; i++) nz(b, { t: Math.random() * 0.1, dur: 0.012, peak: 0.5, type: 'bandpass', f0: 3000 + Math.random() * 3000, f1: 2500, q: 2 });   // crackle
       break;
     }
-    case 'blade': {    // a quick whoosh
-      const b = bus(1.3 * vol, pan, 0.2);
-      nz(b, { atk: 0.04, dur: 0.22, peak: 0.5, type: 'bandpass', f0: 500, f1: 3000 * j, q: 1.2 });
-      tn(b, { dur: 0.16, peak: 0.1, type: 'triangle', f0: 380, f1: 900 });
+    case 'blade': {    // an energy blade: a swing whoosh and a short metallic ring
+      const b = bus(1.2 * vol, pan, 0.2, 0.1);
+      nz(b, { atk: 0.05, dur: 0.24, peak: 0.6, type: 'bandpass', f0: 500, f1: 3200 * j, q: 1.1 });
+      ring(b, { t: 0.02, dur: 0.18, peak: 0.1, f: 2300 * j });
       break;
     }
   }
 }
-/** our attack landed: a bright two-part tick whose pitch rises with the damage */
+/** our attack landed: a short bright "tink" (steady pitch) with a tiny click */
 export function hit(dmg: number) {
   if (!ready() || !gate('hit', 45)) return;
-  const b = bus(1.4, 0, 0.12), k = 1 + Math.min(0.35, dmg / 220);
-  tn(b, { dur: 0.07, peak: 0.45, type: 'sine', f0: 1500 * k, f1: 1250 * k });
-  tn(b, { t: 0.012, dur: 0.05, peak: 0.2, type: 'triangle', f0: 3000 * k, f1: 2600 * k });
-  nz(b, { dur: 0.015, peak: 0.1, type: 'bandpass', f0: 4200, f1: 3000, q: 1 });
+  const b = bus(1.3, 0, 0.1), k = 1 + Math.min(0.3, dmg / 260);
+  ring(b, { dur: 0.07, peak: 0.4, f: 2300 * k }); ring(b, { dur: 0.05, peak: 0.16, f: 3450 * k, type: 'triangle' });
+  nz(b, { dur: 0.012, peak: 0.12, type: 'bandpass', f0: 4200, f1: 3500, q: 1 });
 }
 /** a frag: a short rising two-note chime */
 export function kill() {
@@ -172,12 +219,26 @@ export function kill() {
 /** an explosion: sub thump, rolling body, sharp crack and falling debris. quieter with distance, panned */
 export function boom(size: number, dist: number, pan = 0) {
   if (!ready()) return; const vol = Math.min(1, 15 / (dist + 6)) * Math.min(1.25, size / 3.5); if (vol < 0.04) return;
-  const b = bus(1.0 * vol, pan, 0.62);
-  tn(b, { dur: 0.7, peak: 1.0, type: 'sine', f0: 85, f1: 26 });
-  nz(b, { dur: 1.0, peak: 0.8, type: 'lowpass', f0: 2400, f1: 70, q: 0.5 });
-  nz(b, { dur: 0.09, peak: 0.55, type: 'highpass', f0: 1500, f1: 700 });
-  nz(b, { t: 0.02, dur: 0.5, peak: 0.35, type: 'bandpass', f0: 900, f1: 200, q: 0.7 });
-  for (let i = 0; i < 4; i++) nz(b, { t: 0.12 + Math.random() * 0.5, dur: 0.05, peak: 0.12 + Math.random() * 0.1, type: 'bandpass', f0: 1800 + Math.random() * 2500, f1: 900, q: 1.5 });
+  const b = bus(1.0 * vol, pan, 0.62, 0.3);
+  thump(b, { dur: 0.8, peak: 1.0, f: 46, drop: 2.2 });
+  nz(b, { dur: 1.0, peak: 0.85, type: 'lowpass', f0: 2200, f1: 70, q: 0.5, grit: true });
+  nz(b, { dur: 0.09, peak: 0.7, type: 'highpass', f0: 1200, f1: 700, grit: true });
+  nz(b, { t: 0.02, dur: 0.5, peak: 0.4, type: 'bandpass', f0: 900, f1: 200, q: 0.7 });
+  for (let i = 0; i < 5; i++) nz(b, { t: 0.1 + Math.random() * 0.55, dur: 0.05, peak: 0.12 + Math.random() * 0.12, type: 'bandpass', f0: 1500 + Math.random() * 2500, f1: 900, q: 1.5 });
+}
+/** the hit that plays under an announcer line: a low boom, a brass-like chord and (for big calls) a riser and crash */
+export function stinger(level: number) {
+  if (!ready()) return; const b = bus(0.9, 0, 0.5, 0.2);
+  thump(b, { dur: 0.7, peak: 0.9, f: 52, drop: 2 });
+  nz(b, { dur: 0.35, peak: 0.45, type: 'lowpass', f0: 1800, f1: 120, grit: true });
+  const chord = level >= 3 ? [110, 165, 220, 330] : [110, 165, 220];
+  for (const f of chord) for (const d of [0.994, 1.006]) {
+    const c = ctx!, t = c.currentTime, o = c.createOscillator(); o.type = 'sawtooth'; o.frequency.value = f * d;
+    const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.setValueAtTime(400, t); lp.frequency.exponentialRampToValueAtTime(2400, t + 0.18); lp.frequency.exponentialRampToValueAtTime(500, t + 0.9);
+    const g = c.createGain(); env(g, t, 0.02, 0.1, 0.9); o.connect(lp).connect(g).connect(b); o.start(t); done(o, t + 1.0);
+  }
+  if (level >= 2) nz(b, { atk: 0.35, dur: 0.4, peak: 0.3, type: 'bandpass', f0: 400, f1: 5000, q: 1.2 });
+  if (level >= 3) { nz(b, { t: 0.4, dur: 1.0, peak: 0.35, type: 'highpass', f0: 3600, f1: 3600 }); ring(b, { t: 0.4, dur: 0.9, peak: 0.1, f: 880, type: 'triangle' }); }
 }
 /** we took damage: a dull thump with a grunt-like noise */
 export function hurt() { if (!ready() || !gate('hurt', 80)) return; const b = bus(1.1, 0, 0.18); tn(b, { dur: 0.16, peak: 0.55, type: 'sine', f0: 170, f1: 58 }); nz(b, { dur: 0.13, peak: 0.3, type: 'lowpass', f0: 1300, f1: 180 }); }
@@ -190,7 +251,7 @@ export function died() { if (!ready()) return; const b = bus(0.7, 0, 0.5); tn(b,
 let fakeClock = 1e6;
 /** test hook: render one sound into an offline buffer so it can be measured without speakers */
 export async function renderForTest(play: () => void, seconds = 1.6): Promise<Float32Array[]> {
-  const saved = { ctx, master, verb, noise, masterGain, live };
+  const saved = { ctx, master, verb, noise, masterGain, live, slapIn };
   const off = new OfflineAudioContext(2, Math.floor(44100 * seconds), 44100);
   buildGraph(off, off.destination); live = 0;
   const prevNow = performance.now.bind(performance); performance.now = () => (fakeClock += 500);                    // defeat the retrigger gates
@@ -198,6 +259,6 @@ export async function renderForTest(play: () => void, seconds = 1.6): Promise<Fl
   play();
   performance.now = prevNow;
   const buf = await off.startRendering();
-  ({ ctx, master, verb, noise, masterGain, live } = saved);
+  ({ ctx, master, verb, noise, masterGain, live, slapIn } = saved);
   return [buf.getChannelData(0).slice(), buf.getChannelData(1).slice()];
 }

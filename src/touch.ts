@@ -12,6 +12,8 @@ export interface TouchHooks {
   pause(): void;
   chat(): void;
   mic(on: boolean): void;
+  music(): void;
+  playpause(): void;
 }
 
 export class TouchControls {
@@ -32,9 +34,11 @@ export class TouchControls {
       <button class="tbtn tjump" data-b="jump">${svg('<path d="M6 13l6-6 6 6M6 19l6-6 6 6"/>')}<span>JUMP</span></button>
       <button class="tbtn tcrouch" data-b="crouch">${svg('<path d="M6 8l6 6 6-6M6 19h12"/>')}<span>DUCK</span></button>
       <button class="tbtn tweap" data-b="weap">${svg('<path d="M4 8h13l-3-3M20 16H7l3 3"/>')}</button>
+      <button class="tbtn tmusic" data-b="music">${svg('<path d="M9 18V6l10-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/>')}</button>
+      <button class="tbtn tplay" data-b="play"><span class="ic-play">${svg('<path d="M8 5l11 7-11 7z"/>')}</span><span class="ic-pause">${svg('<path d="M8 5v14M16 5v14"/>')}</span></button>
       <button class="tbtn tchat" data-b="chat">${svg('<path d="M4 5h16v10H9l-5 4z"/>')}</button>
       <button class="tbtn tmic" data-b="mic">${svg('<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>')}</button>
-      <button class="tbtn tpause" data-b="pause">${svg('<path d="M9 6v12M15 6v12"/>')}</button>`;
+      <button class="tbtn tpause" data-b="pause">${svg('<path d="M5 7h14M5 12h14M5 17h14"/>')}</button>`;
     document.body.appendChild(el);
     this.base = el.querySelector<HTMLDivElement>('.tstick')!; this.knob = this.base.querySelector<HTMLDivElement>('i')!;
     this.home();
@@ -45,6 +49,9 @@ export class TouchControls {
     el.addEventListener('touchcancel', e => this.end(e), opt);
     el.addEventListener('contextmenu', e => e.preventDefault());
   }
+
+  /** reflect the music play / pause state on the top button */
+  setPlaying(on: boolean) { this.el.querySelector('.tplay')?.classList.toggle('playing', on); }
 
   show(on: boolean) { this.el.style.display = on ? 'block' : 'none'; if (!on) this.reset(); }
 
@@ -73,6 +80,8 @@ export class TouchControls {
         else if (b === 'weap') { this.hooks.nextWeapon(); flash(btn); }
         else if (b === 'pause') { this.hooks.pause(); }
         else if (b === 'chat') { this.hooks.chat(); flash(btn); }
+        else if (b === 'music') { this.hooks.music(); flash(btn); }
+        else if (b === 'play') { this.hooks.playpause(); }
         else if (b === 'mic') { this.micId = t.identifier; this.hooks.mic(true); btn.classList.add('on'); }
         continue;
       }
