@@ -121,8 +121,15 @@ const gate = (k: string, ms: number) => { const n = performance.now(); if (n - (
  * + BODY (low noise and a pressure thump) + TAIL (room reverb and a wall slap), plus mechanical details. Almost no pitch sweeps.
  * vol < 1 for other players' shots (distance), pan -1 (left) .. 1 (right).
  */
+/** other people's / bots' shots at a distance: two layers only, no reverb, and skipped when the mixer is busy (keeps your own gun and the music clean) */
+function farShot(id: WeaponId, vol: number, pan: number) {
+  if (live > 16) return; const b = bus(0.95 * vol, pan, 0);
+  nz(b, { dur: 0.07, peak: 0.8, type: 'bandpass', f0: 1100 * jit(0.2), f1: 500, q: 0.7, grit: true });
+  thump(b, { dur: 0.1, peak: 0.5, f: id === 'rocket' || id === 'scatter' ? 70 : 105 });
+}
 export function shot(id: WeaponId, vol = 1, pan = 0) {
   if (!ready() || vol < 0.03) return;
+  if (vol < 0.6) { farShot(id, vol, pan); return; }
   const j = jit(0.1);
   switch (id) {
     case 'pistol': {   // a dry, punchy 9mm: crack, bark, short body, one brass tinkle

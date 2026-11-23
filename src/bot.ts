@@ -30,7 +30,7 @@ const SKILL = {
   lead: [0.35, 0.75, 0.95],   // how well they lead a moving target
   cool: [1.7, 1.0, 0.62],     // fire interval multiplier
   turn: [3.5, 7, 11],         // how fast they turn to face you
-  range: [26, 38, 48],
+  range: [20, 28, 36],
 };
 /** per-weapon bot fire pattern */
 const BOT_GUN: Partial<Record<WeaponId, { dmg: number; cd: number; jitter: number; speed: number }>> = {
