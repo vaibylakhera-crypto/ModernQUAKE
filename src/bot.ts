@@ -3,7 +3,7 @@ import { buildFighter, Dressed } from './dress';
 import { animate, holdWeapon, AnimState } from './anim';
 import { Target, rayWorld } from './combat';
 import { WeaponId } from './weapons';
-import { pickups, pads, teleporters, spawns, liftBoxes, BOUNCE_VY, GRAVITY, jumpPadVelocity, PickupDef } from './level';
+import { pickups, pads, teleporters, spawns, liftBoxes, BOUNCE_VY, GRAVITY, jumpPadVelocity, inGate, PickupDef } from './level';
 import { buildNav, nodes, itemNode, nearestNode, dijkstra, pathTo, groundAt, blockedAt } from './nav';
 import { TEAMS } from './teams';
 
@@ -256,7 +256,7 @@ export class Bot implements Target {
       this.grounded = false; this.padCool = 0.5; this.path = []; break;
     }
     if (this.tpCool <= 0) for (const t of teleporters) {
-      if (Math.hypot(t.pos[0] - this.pos.x, t.pos[2] - this.pos.z) > 1.15 || Math.abs(t.pos[1] - this.pos.y) > 1.4) continue;
+      if (!inGate(t, this.pos.x, this.pos.y, this.pos.z)) continue;
       const sp = Math.hypot(this.vel.x, this.vel.z); this.pos.set(t.dest[0], t.dest[1] + 0.05, t.dest[2]);
       this.vel.set(-Math.sin(t.yaw) * sp, 0, -Math.cos(t.yaw) * sp); this.grounded = false; this.vy = 0; this.tpCool = 0.8; this.path = []; this.brainT = 0.2; break;
     }

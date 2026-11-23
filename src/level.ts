@@ -7,7 +7,9 @@ export interface BouncePad { kind: 'bounce'; pos: [number, number, number]; tier
 export interface JumpPad { kind: 'jump'; pos: [number, number, number]; target: [number, number, number] }
 export type Pad = BouncePad | JumpPad;
 /** step on `pos`, come out at `dest` facing `yaw` (0 = -Z), keeping your horizontal speed */
-export interface Teleporter { pos: [number, number, number]; dest: [number, number, number]; yaw: number }
+export interface Teleporter { pos: [number, number, number]; dest: [number, number, number]; yaw: number; face?: number }
+/** a teleporter gate as the game uses it: an upright doorway at `pos` (floor level, centre) whose front looks along yaw `face` */
+export type Gate = Teleporter & { face: number };
 /**
  * A lift: a platform that glides between two heights on a fixed clock (so every player sees the same lift).
  * It waits `wait` seconds at each end and takes `travel` seconds to move. y0/y1 are the heights of its top surface.
@@ -108,7 +110,7 @@ const SPIRE: Omit<MapDef, 'id' | 'name' | 'desc'> = {
     wall(-3, -0.5, 3, 0.5, 0),                                       // low cover in the middle of the hub
     plat(0, 0, -21, 4, 18, 0.6, 5), plat(0, 0, 21, 4, 18, 0.6, 5),   // bridges
     plat(0, 0, -36, 16, 12, 1.2, 1), plat(0, 0, 36, 16, 12, 1.2, 3), // north / south decks
-    wall(-6, -38, -2, -37, 0), wall(2, 35, 6, 36, 0),
+    wall(-1, -35.5, 3, -34.5, 0), wall(-3, 34.5, 1, 35.5, 0),
     plat(36, 6, 0, 14, 16, 1.2, 2), plat(-36, 6, 0, 14, 16, 1.2, 4), // east / west decks
     pillar(36, 6, 6, 1.2, 3), pillar(-36, 6, -6, 1.2, 3),
     plat(30, 10, -30, 10, 10, 1, 2), plat(-30, 10, -30, 10, 10, 1, 4), plat(30, 10, 30, 10, 10, 1, 3), plat(-30, 10, 30, 10, 10, 1, 1),   // perches
@@ -166,15 +168,15 @@ const BASTION: Omit<MapDef, 'id' | 'name' | 'desc'> = {
     { kind: 'bounce', pos: [0, 0, -4.5], tier: 'small' }, { kind: 'bounce', pos: [0, 0, 4.5], tier: 'small' },
   ],
   teleporters: [
-    { pos: [-38, 4, -10], dest: [36, 4, 10], yaw: W },                   // west back corner -> east flank
-    { pos: [38, 4, 10], dest: [-36, 4, -10], yaw: -W },                  // east back corner -> west flank
-    { pos: [-38.5, 9, 3.5], dest: [-3, 0, -3], yaw: -W },                // west balcony -> island
-    { pos: [38.5, 9, -3.5], dest: [3, 0, 3], yaw: W },                   // east balcony -> island
+    { pos: [-39.3, 4, -8.5], face: -W, dest: [36, 4, 10], yaw: W },                   // west back corner -> east flank
+    { pos: [39.3, 4, 8.5], face: W, dest: [-36, 4, -10], yaw: -W },                  // east back corner -> west flank
+    { pos: [-39.4, 9, -3.2], face: -W, dest: [-3, 0, -3], yaw: -W },                // west balcony -> island
+    { pos: [39.4, 9, 3.2], face: W, dest: [3, 0, 3], yaw: W },                   // east balcony -> island
   ],
   pickups: [
     { kind: 'booster', id: 'overdrive', pos: [0, 0, 0] },
     { kind: 'booster', id: 'haste', pos: [0, 4, -10] }, { kind: 'booster', id: 'regen', pos: [0, 4, 10] },
-    { kind: 'booster', id: 'mega', pos: [-37, 9, -3] }, { kind: 'booster', id: 'shield', pos: [37, 9, 3] },
+    { kind: 'booster', id: 'mega', pos: [-35.2, 9, -3.2] }, { kind: 'booster', id: 'shield', pos: [35.2, 9, 3.2] },
     { kind: 'booster', id: 'jump', pos: [5, 0, -5] },
     { kind: 'weapon', id: 'rail', pos: [-37, 9, 2] }, { kind: 'weapon', id: 'rail', pos: [37, 9, -2] },
     { kind: 'weapon', id: 'rocket', pos: [-5, 0, 5] },
@@ -211,8 +213,8 @@ const FOUNDRY: Omit<MapDef, 'id' | 'name' | 'desc'> = {
     { kind: 'bounce', pos: [-10, 0, 0], tier: 'medium' }, { kind: 'bounce', pos: [10, 0, 0], tier: 'medium' },
   ],
   teleporters: [
-    { pos: [17.5, 5, 10], dest: [-16, 0, -7], yaw: -W },
-    { pos: [-17.5, 5, -10], dest: [16, 0, 7], yaw: W },
+    { pos: [19.3, 5, 8.5], face: W, dest: [-16, 0, -7], yaw: -W },
+    { pos: [-19.3, 5, -8.5], face: -W, dest: [16, 0, 7], yaw: W },
   ],
   pickups: [
     { kind: 'booster', id: 'mega', pos: [0, 1.2, 0] },
@@ -252,20 +254,20 @@ const CRYPT: Omit<MapDef, 'id' | 'name' | 'desc'> = {
     { kind: 'bounce', pos: [-15, 0, 0], tier: 'small' }, { kind: 'bounce', pos: [15, 0, 0], tier: 'small' },
   ],
   teleporters: [
-    { pos: [-28, 0, 12], dest: [28, 0, -10], yaw: W },
-    { pos: [28, 0, -12], dest: [-28, 0, 10], yaw: -W },
-    { pos: [-29, 6, 11.5], dest: [0, 0, 2], yaw: 0 },
-    { pos: [29, 6, -11.5], dest: [0, 0, -2], yaw: Math.PI },
+    { pos: [-29.3, 0, 12], face: -W, dest: [28, 0, -10], yaw: W },
+    { pos: [29.3, 0, -12], face: W, dest: [-28, 0, 10], yaw: -W },
+    { pos: [-29.3, 6, 11.5], face: -W, dest: [0, 0, 2], yaw: 0 },
+    { pos: [29.3, 6, -11.5], face: W, dest: [0, 0, -2], yaw: Math.PI },
   ],
   pickups: [
     { kind: 'booster', id: 'mega', pos: [0, 0, 0] },
     { kind: 'weapon', id: 'rail', pos: [0, 6, -11.5] }, { kind: 'weapon', id: 'rocket', pos: [0, 6, 11.5] },
     { kind: 'weapon', id: 'scatter', pos: [-15, 0, -8] }, { kind: 'weapon', id: 'scatter', pos: [15, 0, 8] },
     { kind: 'weapon', id: 'nailer', pos: [-22, 6, -11.5] }, { kind: 'weapon', id: 'plasma', pos: [22, 6, 11.5] }, { kind: 'weapon', id: 'arc', pos: [-22, 6, 11.5] },
-    { kind: 'booster', id: 'overdrive', pos: [27, 6, -11.5] }, { kind: 'booster', id: 'haste', pos: [-27, 6, 11.5] },
+    { kind: 'booster', id: 'overdrive', pos: [24.5, 6, -11.5] }, { kind: 'booster', id: 'haste', pos: [-24.5, 6, 11.5] },
     { kind: 'booster', id: 'regen', pos: [-12, 0, 11] }, { kind: 'booster', id: 'shield', pos: [12, 0, -11] },
     { kind: 'health', amount: 25, pos: [-27, 0, -12] }, { kind: 'health', amount: 25, pos: [27, 0, 12] },
-    { kind: 'armor', amount: 25, pos: [-27, 0, 12] }, { kind: 'armor', amount: 25, pos: [27, 0, -12] },
+    { kind: 'armor', amount: 25, pos: [-26, 0, 9] }, { kind: 'armor', amount: 25, pos: [26, 0, -9] },
   ],
   botZones: [{ x0: -28, x1: 28, z0: -12, z1: 12, y: 0 }],
   lifts: [lift(-18, -9, -14, -5, 0, 6, 0), lift(14, 5, 18, 9, 0, 6, 3)],
@@ -298,8 +300,8 @@ const TOWER: Omit<MapDef, 'id' | 'name' | 'desc'> = {
     { kind: 'bounce', pos: [-12, 0, 8], tier: 'medium' }, { kind: 'bounce', pos: [12, 0, -8], tier: 'medium' },
   ],
   teleporters: [
-    { pos: [-18, 12, -12], dest: [17, 0, 11], yaw: W }, { pos: [18, 12, 12], dest: [-17, 0, -11], yaw: -W },
-    { pos: [-18, 12, 12], dest: [0, 6, -9.5], yaw: Math.PI }, { pos: [18, 12, -12], dest: [0, 6, 9.5], yaw: 0 },
+    { pos: [-18, 12, -13.3], face: Math.PI, dest: [17, 0, 11], yaw: W }, { pos: [18, 12, 13.3], face: 0, dest: [-17, 0, -11], yaw: -W },
+    { pos: [-18, 12, 13.3], face: 0, dest: [0, 6, -9.5], yaw: Math.PI }, { pos: [18, 12, -13.3], face: Math.PI, dest: [0, 6, 9.5], yaw: 0 },
   ],
   pickups: [
     { kind: 'booster', id: 'mega', pos: [0, 0, 0] },
@@ -326,7 +328,7 @@ const RING: Omit<MapDef, 'id' | 'name' | 'desc'> = {
     plat(0, 0, -30, 50, 10, 1.2, 1), plat(0, 0, 30, 50, 10, 1.2, 3), plat(-30, 0, 0, 10, 50, 1.2, 4), plat(30, 0, 0, 10, 50, 1.2, 2),
     plat(-30, 0, -30, 10, 10, 1.2, 5), plat(30, 0, -30, 10, 10, 1.2, 5), plat(-30, 0, 30, 10, 10, 1.2, 5), plat(30, 0, 30, 10, 10, 1.2, 5),
     plat(0, 10, 0, 12, 12, 1.2, 0),
-    pillar(-30, 0, -30, 1.4, 4), pillar(30, 0, -30, 1.4, 4), pillar(-30, 0, 30, 1.4, 4), pillar(30, 0, 30, 1.4, 4),
+    pillar(-33, 0, -27, 1.4, 4), pillar(33, 0, -27, 1.4, 4), pillar(-33, 0, 27, 1.4, 4), pillar(33, 0, 27, 1.4, 4),
     wall(-14, -32, -10, -31, 0, 1.2), wall(10, -29, 14, -28, 0, 1.2), wall(-14, 28, -10, 29, 0, 1.2), wall(10, 31, 14, 32, 0, 1.2),
     wall(-32, -14, -31, -10, 0, 1.2), wall(-29, 10, -28, 14, 0, 1.2), wall(31, -14, 32, -10, 0, 1.2), wall(28, 10, 29, 14, 0, 1.2),
   ],
@@ -338,8 +340,8 @@ const RING: Omit<MapDef, 'id' | 'name' | 'desc'> = {
     { kind: 'bounce', pos: [-20, 0, -30], tier: 'small' }, { kind: 'bounce', pos: [20, 0, 30], tier: 'small' },
   ],
   teleporters: [
-    { pos: [-30, 0, -30], dest: [29, 0, 29], yaw: Math.PI / 2 + 0.8 }, { pos: [30, 0, 30], dest: [-29, 0, -29], yaw: -Math.PI / 2 - 0.8 + Math.PI },
-    { pos: [30, 0, -30], dest: [-29, 0, 29], yaw: -Math.PI / 4 }, { pos: [-30, 0, 30], dest: [29, 0, -29], yaw: Math.PI * 3 / 4 },
+    { pos: [-30, 0, -30], dest: [29, 0, 29], yaw: W }, { pos: [30, 0, 30], dest: [-29, 0, -29], yaw: -W },
+    { pos: [30, 0, -30], dest: [-29, 0, 29], yaw: -W }, { pos: [-30, 0, 30], dest: [29, 0, -29], yaw: W },
   ],
   pickups: [
     { kind: 'weapon', id: 'rail', pos: [0, 10, 0] }, { kind: 'booster', id: 'overdrive', pos: [3, 10, -3] },
@@ -377,7 +379,15 @@ export const boxes = [...DEF.boxes, ...liftBoxes];
 export const pads = DEF.pads;
 export const spawns = DEF.spawns;
 export const pickups = DEF.pickups;
-export const teleporters = DEF.teleporters;
+/** gates stand upright; unless a map says otherwise they face the middle of the map */
+export const teleporters: Gate[] = DEF.teleporters.map(t => ({ ...t, face: t.face ?? Math.atan2(t.pos[0], t.pos[2]) }));
+/** the doorway: 2.6 m wide, 3.2 m tall. True when a body at (x,y,z) (feet) is inside the glowing surface */
+export function inGate(t: Gate, x: number, y: number, z: number): boolean {
+  const dx = x - t.pos[0], dz = z - t.pos[2], dy = y - t.pos[1];
+  if (dy < -0.5 || dy > 2.5) return false;
+  const s = Math.sin(t.face), c = Math.cos(t.face);
+  return Math.abs(-dx * s - dz * c) < 0.9 && Math.abs(dx * c - dz * s) < 1.25;
+}
 export const botZones = DEF.botZones;
 export const THEME = DEF.theme;
 export const flags = DEF.flags;

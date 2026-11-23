@@ -138,36 +138,90 @@ export function columnMesh(color: THREE.Color, H: number, r = 1.0): THREE.Mesh {
 }
 
 // ───────────── teleporter gates ─────────────
-// A ringed base with a swirling vortex floor and two counter-rotating halo rings floating above it.
-const TP_COLOR = new THREE.Color(0xa86bff);
-const vortexFrag = /* glsl */ `
+// An upright stone-and-steel doorway filled with a swirling blue-white energy surface; sparks orbit inside it.
+// Walk through and you come out at the other end (the arrival point has a softer glow of its own).
+const GATE_BLUE = new THREE.Color(0x56a8ff), GATE_W = 2.5, GATE_H = 3.2, GATE_Y0 = 0.25;
+const gateSurfVert = /* glsl */ `varying vec2 vQ; void main(){ vQ = (uv - 0.5) * 2.0; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`;
+const gateSurfFrag = /* glsl */ `
 precision mediump float;
-uniform float uTime; uniform vec3 uColor; varying vec2 vP;
+uniform float uTime; uniform vec3 uColor; varying vec2 vQ;
+float h(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 void main(){
-  float r = length(vP) / 1.3; if (r > 1.0) discard;
-  float a = atan(vP.y, vP.x);
-  float swirl = sin(a * 3.0 + r * 9.0 - uTime * 4.0) * 0.5 + 0.5;
-  float core = smoothstep(0.55, 0.0, r);
-  float edge = smoothstep(1.0, 0.85, r);
-  vec3 c = mix(uColor * 0.6, vec3(1.0, 0.92, 1.0), core * 0.8);
-  gl_FragColor = vec4(c * (0.4 + swirl * 1.4 + core * 1.5), edge * (0.55 + swirl * 0.35));
+  vec2 q = vec2(vQ.x * 1.0, vQ.y * 1.25);                       // roughly circular coordinates inside the tall doorway
+  float r = length(q), a = atan(q.y, q.x);
+  float spiral = sin(a * 3.0 - r * 8.0 + uTime * 3.2);          // slow arms winding into the centre
+  float rings = sin(r * 15.0 - uTime * 5.0);                    // ripples racing inward
+  float arms = smoothstep(0.25, 1.0, spiral * 0.5 + 0.5);
+  float core = smoothstep(0.75, 0.0, r);
+  float fl = h(floor(vec2(a * 6.0 / 6.2831 * 8.0, r * 14.0 - uTime * 6.0)));   // flicker cells drifting inward
+  float edge = smoothstep(1.0, 0.72, max(abs(vQ.x), abs(vQ.y) * 0.96));       // soft edge so it blends into the frame
+  vec3 c = mix(uColor * 0.55, vec3(0.85, 0.95, 1.0), core * 0.85 + arms * 0.25);
+  float light = 0.45 + arms * 0.9 + (rings * 0.5 + 0.5) * 0.35 + core * 1.1 + fl * 0.18;
+  gl_FragColor = vec4(c * light, edge * (0.55 + arms * 0.25 + core * 0.2));
 }`;
-const vortexGeo = new THREE.CircleGeometry(1.3, 40).rotateX(-Math.PI / 2).translate(0, 0.09, 0);
-const tpRingMat = new THREE.MeshBasicMaterial({ color: TP_COLOR.clone().multiplyScalar(1.7) });
+const gateSparkVert = /* glsl */ `
+attribute vec3 aSeed; uniform float uTime; varying float vA;
+void main(){
+  float dir = aSeed.z > 0.5 ? 1.0 : -1.0;
+  float ang = aSeed.x * 6.2831 + uTime * dir * (0.7 + aSeed.y * 1.7);
+  float rad = 0.18 + aSeed.y * 0.95;
+  vec3 p = vec3(cos(ang) * rad * 0.98, 1.85 + sin(ang) * rad * 1.38, sin(uTime * 2.1 + aSeed.x * 31.0) * 0.1);
+  vA = 0.45 + 0.55 * sin(uTime * 4.0 + aSeed.x * 50.0);
+  gl_PointSize = 3.0 + 5.0 * (1.0 - aSeed.y) * (0.7 + 0.3 * vA);
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
+}`;
+const gateSparkFrag = /* glsl */ `
+precision mediump float;
+varying float vA;
+void main(){ float d = length(gl_PointCoord - 0.5); float a = smoothstep(0.5, 0.0, d); gl_FragColor = vec4(0.8, 0.93, 1.0, a * a * vA); }`;
+const glowFrag = /* glsl */ `
+precision mediump float;
+uniform vec3 uColor; uniform float uTime; varying vec2 vQ;
+void main(){ float r = length(vQ); float a = smoothstep(1.0, 0.0, r); gl_FragColor = vec4(uColor, a * a * (0.32 + 0.08 * sin(uTime * 3.0))); }`;
+const gateFrameMat = new THREE.MeshLambertMaterial({ color: 0x59606c });
+const gateTrimMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0x9fd2ff).multiplyScalar(1.5) });
+const gateFrameGeo = (() => {
+  const box = (w: number, h: number, d: number, x: number, y: number, z = 0) => new THREE.BoxGeometry(w, h, d).translate(x, y, z).toNonIndexed();
+  const parts = [
+    box(3.5, 0.25, 1.1, 0, 0.125), box(0.5, 3.75, 0.7, -1.5, GATE_Y0 + 1.875), box(0.5, 3.75, 0.7, 1.5, GATE_Y0 + 1.875),   // plinth, posts
+    box(3.5, 0.5, 0.7, 0, GATE_Y0 + GATE_H + 0.25), box(1.3, 0.28, 0.5, 0, GATE_Y0 + GATE_H + 0.64),                      // lintel + crest
+    box(0.3, 0.3, 0.8, -1.5, 0.4), box(0.3, 0.3, 0.8, 1.5, 0.4),                                                            // foot braces
+  ];
+  for (const g of parts) g.deleteAttribute('uv');
+  return mergeGeometries(parts)!;
+})();
+const gateTrimGeo = (() => {
+  const box = (w: number, h: number, d: number, x: number, y: number, z = 0) => new THREE.BoxGeometry(w, h, d).translate(x, y, z).toNonIndexed();
+  const parts = [box(0.07, GATE_H, 0.1, -1.26, GATE_Y0 + GATE_H / 2, 0.38), box(0.07, GATE_H, 0.1, 1.26, GATE_Y0 + GATE_H / 2, 0.38), box(2.6, 0.07, 0.1, 0, GATE_Y0 + GATE_H - 0.02, 0.38),
+    box(0.07, GATE_H, 0.1, -1.26, GATE_Y0 + GATE_H / 2, -0.38), box(0.07, GATE_H, 0.1, 1.26, GATE_Y0 + GATE_H / 2, -0.38), box(2.6, 0.07, 0.1, 0, GATE_Y0 + GATE_H - 0.02, -0.38),
+    box(0.9, 0.08, 0.1, 0, GATE_Y0 + GATE_H + 0.64, 0.27), box(0.9, 0.08, 0.1, 0, GATE_Y0 + GATE_H + 0.64, -0.27)];
+  for (const g of parts) g.deleteAttribute('uv');
+  return mergeGeometries(parts)!;
+})();
+const gateSurfGeo = new THREE.PlaneGeometry(GATE_W, GATE_H).translate(0, GATE_Y0 + GATE_H / 2, 0);
+const gateGlowGeo = new THREE.PlaneGeometry(5, 5).rotateX(-Math.PI / 2).translate(0, 0.04, 0);
+function gateSparks(n: number, seedBase: number) {
+  const g = new THREE.BufferGeometry(), seed = new Float32Array(n * 3);
+  const rnd = (i: number) => { const x = Math.sin(i * 77.3 + seedBase * 13.1) * 43758.5453; return x - Math.floor(x); };
+  for (let i = 0; i < n; i++) { seed[i * 3] = rnd(i); seed[i * 3 + 1] = Math.sqrt(rnd(i + 50)); seed[i * 3 + 2] = rnd(i + 90); }
+  g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(n * 3), 3)); g.setAttribute('aSeed', new THREE.BufferAttribute(seed, 3));
+  g.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 2, 0), 3);
+  return g;
+}
 export const teleTime = { value: 0 };
-export function buildTeleporter(pos: [number, number, number], dest: [number, number, number]): { gate: THREE.Group; exit: THREE.Group; spin: THREE.Object3D[] } {
-  const gate = new THREE.Group(); gate.position.set(pos[0], pos[1] + 0.012, pos[2]);
-  gate.add(new THREE.Mesh(housing, housingMat));
-  gate.add(new THREE.Mesh(trimGeo, tpRingMat));
-  gate.add(new THREE.Mesh(vortexGeo, new THREE.ShaderMaterial({ vertexShader: plateVert, fragmentShader: vortexFrag, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, uniforms: { uTime: teleTime, uColor: { value: TP_COLOR } } })));
-  const spin: THREE.Object3D[] = [];
-  for (let i = 0; i < 2; i++) {
-    const halo = new THREE.Mesh(new THREE.TorusGeometry(1.05 - i * 0.18, 0.045, 6, 40), tpRingMat);
-    halo.position.y = 1.3 + i * 0.5; halo.rotation.x = Math.PI / 2; gate.add(halo); spin.push(halo);
-  }
-  const col = columnMesh(TP_COLOR, 2.6, 1.1); col.position.y = 0.1; gate.add(col);
-  // faint marker where you arrive
-  const exit = new THREE.Group(); exit.position.set(dest[0], dest[1] + 0.03, dest[2]);
-  exit.add(new THREE.Mesh(new THREE.RingGeometry(0.7, 0.85, 32).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: TP_COLOR, transparent: true, opacity: 0.45, blending: THREE.AdditiveBlending, depthWrite: false })));
-  return { gate, exit, spin };
+let gateCount = 0;
+export function buildTeleporter(t: { pos: [number, number, number]; dest: [number, number, number]; face: number }): { gate: THREE.Group; exit: THREE.Group; spin: THREE.Object3D[] } {
+  const gate = new THREE.Group(); gate.position.set(t.pos[0], t.pos[1] + 0.012, t.pos[2]); gate.rotation.y = t.face;
+  gate.add(new THREE.Mesh(gateFrameGeo, gateFrameMat), new THREE.Mesh(gateTrimGeo, gateTrimMat));
+  const surf = new THREE.Mesh(gateSurfGeo, new THREE.ShaderMaterial({ vertexShader: gateSurfVert, fragmentShader: gateSurfFrag, transparent: true, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, uniforms: { uTime: teleTime, uColor: { value: GATE_BLUE } } }));
+  surf.renderOrder = 3; gate.add(surf);
+  const sparks = new THREE.Points(gateSparks(46, gateCount++), new THREE.ShaderMaterial({ vertexShader: gateSparkVert, fragmentShader: gateSparkFrag, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, uniforms: { uTime: teleTime } }));
+  sparks.frustumCulled = false; sparks.renderOrder = 4; gate.add(sparks);
+  const glow = new THREE.Mesh(gateGlowGeo, new THREE.ShaderMaterial({ vertexShader: gateSurfVert, fragmentShader: glowFrag, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, uniforms: { uTime: teleTime, uColor: { value: GATE_BLUE } } }));
+  glow.renderOrder = 2; gate.add(glow);
+  // where you come out: a soft ring of light and a thin rising column
+  const exit = new THREE.Group(); exit.position.set(t.dest[0], t.dest[1] + 0.03, t.dest[2]);
+  exit.add(new THREE.Mesh(new THREE.RingGeometry(0.7, 0.85, 32).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: GATE_BLUE, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false })));
+  const col = columnMesh(GATE_BLUE, 2.2, 0.75); exit.add(col);
+  return { gate, exit, spin: [] };
 }
