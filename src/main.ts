@@ -22,6 +22,7 @@ import { WEAPON_ORDER, WEAPON_DEFS } from './weapons';
 import { TouchControls, isTouch as touchDevice, goFullscreen } from './touch';
 import { setupAssets } from './assets';
 import * as sfx from './sfx';
+import { Gyro } from './gyro';
 import { WeaponId } from './weapons';
 
 const Q = getQuality();
@@ -182,6 +183,7 @@ if (TOUCH) {
   touch.show(false);
   document.addEventListener('visibilitychange', () => { if (document.hidden && touchPlaying) { touchPlaying = false; touch!.show(false); openPause(); } });
 }
+const gyro = new Gyro();
 let aimSens = 1;
 try { aimSens = Number(localStorage.getItem('mq-sens')) || 1; } catch { /* ignore */ }
 
@@ -477,6 +479,11 @@ const menu = new Menu({
   hostStop() { if (isHost()) net.send({ t: 'stop' }); },
   restartSolo() { startSoloMatch(); resume(); },
   async fetchGames(): Promise<OpenGame[]> { const r = await fetch(`${Net.httpBase()}/api/rooms`, { cache: 'no-store' }); return r.ok ? r.json() : []; },
+  gyro: {
+    state: () => ({ mode: gyro.mode, sens: gyro.sens, invertY: gyro.invertY, supported: Gyro.supported, seen: gyro.seen }),
+    async setMode(m) { gyro.setMode(m); if (m === 'off') return true; return (await gyro.requestPermission()) || gyro.seen; },
+    setSens: v => gyro.setSens(v), setInvert: v => gyro.setInvert(v),
+  },
   settingsChanged(st) { aimSens = st.sens; sfx.setVolume(st.vol); if (st.name) myName = st.name.slice(0, 14); },
 });
 sfx.setVolume(menu.settings.vol);
@@ -598,6 +605,13 @@ function frame(now: number) {
   const frameMs = now - last;
   acc += Math.min(0.1, frameMs / 1000); last = now;
   const frozen = paused();
+  { // gyro aim (touch): added on top of the drag-to-look
+    const g = gyro.take(touchPlaying && !frozen && (gyro.mode === 'on' || (gyro.mode === 'fire' && firing())));
+    if (g.yaw || g.pitch) {
+      yaw += g.yaw; pitch = Math.max(-Math.PI / 2 + 0.01, Math.min(Math.PI / 2 - 0.01, pitch + g.pitch));
+      lookDX -= g.yaw * 260; lookDY -= g.pitch * 260;             // weapon sway follows the motion
+    }
+  }
   if (frozen) acc = 0;
   while (acc >= DT) {
     const input: Input = {

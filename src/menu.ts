@@ -1,6 +1,7 @@
 // Menus: title · solo / host setup · join (code + open games list) · lobby · pause · settings · match results.
 // Pure DOM; main.ts supplies the hooks and pushes room / scoreboard updates in.
 import type { MatchCfg, PlayerInfo } from './net';
+import type { GyroMode } from './gyro';
 
 export type Screen = 'title' | 'solo' | 'host' | 'join' | 'lobby' | 'pause' | 'settings';
 export interface OpenGame { room: string; host: string; players: number; bots: number; map: string; state: string; frag: number; time: number }
@@ -22,6 +23,12 @@ export interface MenuHooks {
   restartSolo(): void;
   fetchGames(): Promise<OpenGame[]>;
   settingsChanged(s: Settings): void;
+  /** gyro aiming (touch devices) */
+  gyro: {
+    state(): { mode: GyroMode; sens: number; invertY: boolean; supported: boolean; seen: boolean };
+    setMode(m: GyroMode): Promise<boolean>;   // false = permission denied / no gyroscope
+    setSens(v: number): void; setInvert(v: boolean): void;
+  };
 }
 export interface Settings { name: string; sens: number; vol: number; quality: 'low' | 'med' | 'high' }
 export interface LobbyView {
@@ -264,10 +271,22 @@ export class Menu {
     return `<div class="m-title">SETTINGS</div>
       <div class="m-field"><label>NAME</label><input class="m-input" data-f="name" maxlength="14" value="${esc(s.name)}" placeholder="NAME"></div>
       <div class="m-field"><label>${this.h.touch ? 'AIM SPEED' : 'MOUSE SENSITIVITY'} · <span data-o="sens">${s.sens.toFixed(1)}</span></label><input class="m-range" type="range" min="0.3" max="3" step="0.1" data-f="sens" value="${s.sens}"></div>
+      ${this.h.touch ? this.gyroControls() : ''}
       <div class="m-field"><label>VOLUME · <span data-o="vol">${Math.round(s.vol * 100)}</span>%</label><input class="m-range" type="range" min="0" max="1" step="0.05" data-f="vol" value="${s.vol}"></div>
       <div class="m-field"><label>GRAPHICS</label><div class="m-seg">${q('low', 'FAST')}${q('med', 'BALANCED')}${q('high', 'BEST')}</div>
         <div class="m-note" style="text-align:left;margin-top:4px">FAST suits phones. Changing graphics reloads the game.</div></div>
       <div class="m-col"><button class="m-btn pri" data-a="back">DONE</button></div>`;
+  }
+
+  private gyroNote = '';
+  private gyroControls() {
+    const g = this.h.gyro.state();
+    if (!g.supported) return `<div class="m-field"><label>GYRO AIM</label><div class="m-note" style="text-align:left">This device or browser has no motion sensor access.</div></div>`;
+    const b = (m: GyroMode, label: string) => `<button data-a="gyro" data-v="${m}" class="${g.mode === m ? 'on' : ''}">${label}</button>`;
+    return `<div class="m-field"><label>GYRO AIM</label><div class="m-seg">${b('off', 'OFF')}${b('on', 'ON')}${b('fire', 'WHILE FIRING')}</div>
+        <div class="m-note" style="text-align:left;margin-top:4px">${esc(this.gyroNote || 'Turn and tilt the phone to aim. WHILE FIRING only uses the gyro while you hold FIRE.')}</div></div>
+      ${g.mode !== 'off' ? `<div class="m-field"><label>GYRO SENSITIVITY · <span data-o="gsens">${g.sens.toFixed(1)}</span></label><input class="m-range" type="range" min="0.3" max="3" step="0.1" data-f="gsens" value="${g.sens}"></div>
+      <div class="m-field"><label>GYRO UP / DOWN</label><div class="m-seg"><button data-a="ginv" data-v="0" class="${!g.invertY ? 'on' : ''}">NORMAL</button><button data-a="ginv" data-v="1" class="${g.invertY ? 'on' : ''}">INVERTED</button></div></div>` : ''}`;
   }
 
   // ───────── input ─────────
@@ -276,6 +295,7 @@ export class Menu {
     if (f === 'name') { this.settings.name = t.value.replace(/[^\w \-]/g, '').toUpperCase(); save('mq-name', this.settings.name); }
     if (f === 'code') save('mq-room', t.value.toUpperCase());
     if (f === 'sens') { this.settings.sens = Number(t.value); save('mq-sens', t.value); const o = this.el.querySelector('[data-o="sens"]'); if (o) o.textContent = this.settings.sens.toFixed(1); }
+    if (f === 'gsens') { this.h.gyro.setSens(Number(t.value)); const o = this.el.querySelector('[data-o="gsens"]'); if (o) o.textContent = Number(t.value).toFixed(1); }
     if (f === 'vol') { this.settings.vol = Number(t.value); save('mq-vol', t.value); const o = this.el.querySelector('[data-o="vol"]'); if (o) o.textContent = String(Math.round(this.settings.vol * 100)); }
     this.h.settingsChanged(this.settings);
   }
@@ -307,6 +327,16 @@ export class Menu {
       case 'stop': this.h.hostStop(); break;
       case 'copy': if (this.view) { const l = this.view.link; navigator.clipboard?.writeText(l).then(() => this.flash(b, 'COPIED!'), () => prompt('Copy this link:', l)); } break;
       case 'share': if (this.view) navigator.share?.({ title: 'ModernQUAKE', text: `Join my ModernQUAKE game · room ${this.view.room}`, url: this.view.link }).catch(() => {}); break;
+      case 'gyro': {
+        // must ask for motion permission inside this tap (iOS)
+        this.h.gyro.setMode(v as GyroMode).then(ok => {
+          this.gyroNote = ok ? '' : 'Motion access may be blocked. If aiming does not move, allow motion & orientation access for this site in your browser settings.';
+          if (ok && v !== 'off') setTimeout(() => { if (!this.h.gyro.state().seen) { this.gyroNote = 'No gyroscope readings from this phone.'; if (this.screen === 'settings') this.render(); } }, 1500);
+          this.render();
+        });
+        break;
+      }
+      case 'ginv': this.h.gyro.setInvert(v === '1'); this.render(); break;
       case 'set-q': if (v !== this.settings.quality) { this.settings.quality = v as Settings['quality']; save('mq-quality', v); this.h.settingsChanged(this.settings); location.reload(); } break;
     }
   }
