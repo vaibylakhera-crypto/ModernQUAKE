@@ -153,7 +153,7 @@ void main(){
   float rings = sin(r * 15.0 - uTime * 5.0);                    // ripples racing inward
   float arms = smoothstep(0.25, 1.0, spiral * 0.5 + 0.5);
   float core = smoothstep(0.75, 0.0, r);
-  float fl = h(floor(vec2(a * 6.0 / 6.2831 * 8.0, r * 14.0 - uTime * 6.0)));   // flicker cells drifting inward
+  float fl = 0.5;
   float edge = smoothstep(1.0, 0.72, max(abs(vQ.x), abs(vQ.y) * 0.96));       // soft edge so it blends into the frame
   vec3 c = mix(uColor * 0.55, vec3(0.85, 0.95, 1.0), core * 0.85 + arms * 0.25);
   float light = 0.45 + arms * 0.9 + (rings * 0.5 + 0.5) * 0.35 + core * 1.1 + fl * 0.18;
@@ -210,18 +210,20 @@ function gateSparks(n: number, seedBase: number) {
 }
 export const teleTime = { value: 0 };
 let gateCount = 0;
-export function buildTeleporter(t: { pos: [number, number, number]; dest: [number, number, number]; face: number }): { gate: THREE.Group; exit: THREE.Group; spin: THREE.Object3D[] } {
+export function buildTeleporter(t: { pos: [number, number, number]; dest: [number, number, number]; face: number }, fancy = true): { gate: THREE.Group; exit: THREE.Group; spin: THREE.Object3D[] } {
   const gate = new THREE.Group(); gate.position.set(t.pos[0], t.pos[1] + 0.012, t.pos[2]); gate.rotation.y = t.face;
   gate.add(new THREE.Mesh(gateFrameGeo, gateFrameMat), new THREE.Mesh(gateTrimGeo, gateTrimMat));
   const surf = new THREE.Mesh(gateSurfGeo, new THREE.ShaderMaterial({ vertexShader: gateSurfVert, fragmentShader: gateSurfFrag, transparent: true, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, uniforms: { uTime: teleTime, uColor: { value: GATE_BLUE } } }));
   surf.renderOrder = 3; gate.add(surf);
+  if (fancy) {
   const sparks = new THREE.Points(gateSparks(46, gateCount++), new THREE.ShaderMaterial({ vertexShader: gateSparkVert, fragmentShader: gateSparkFrag, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, uniforms: { uTime: teleTime } }));
   sparks.frustumCulled = false; sparks.renderOrder = 4; gate.add(sparks);
+  }
   const glow = new THREE.Mesh(gateGlowGeo, new THREE.ShaderMaterial({ vertexShader: gateSurfVert, fragmentShader: glowFrag, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, uniforms: { uTime: teleTime, uColor: { value: GATE_BLUE } } }));
-  glow.renderOrder = 2; gate.add(glow);
+  glow.renderOrder = 2; if (fancy) gate.add(glow);
   // where you come out: a soft ring of light and a thin rising column
   const exit = new THREE.Group(); exit.position.set(t.dest[0], t.dest[1] + 0.03, t.dest[2]);
   exit.add(new THREE.Mesh(new THREE.RingGeometry(0.7, 0.85, 32).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: GATE_BLUE, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false })));
-  const col = columnMesh(GATE_BLUE, 2.2, 0.75); exit.add(col);
+  if (fancy) exit.add(columnMesh(GATE_BLUE, 2.2, 0.75));
   return { gate, exit, spin: [] };
 }

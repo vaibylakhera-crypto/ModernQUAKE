@@ -44,7 +44,7 @@ export function unlock() {
       const AC = window.AudioContext || (window as any).webkitAudioContext; if (!AC) return;
       const c = new AC(); buildGraph(c, c.destination);
     }
-    if ((ctx as AudioContext).state === 'suspended') void (ctx as AudioContext).resume();
+    if ((ctx as AudioContext).state !== 'running') void (ctx as AudioContext).resume();      // also wakes an iOS 'interrupted' context
   } catch { ctx = null; }
 }
 export function setVolume(v: number) { volume = v; if (masterGain) masterGain.gain.value = v; try { localStorage.setItem('mq-vol', String(v)); } catch { /* ignore */ } }
@@ -244,10 +244,9 @@ export function stinger(level: number) {
 export function hurt() { if (!ready() || !gate('hurt', 80)) return; const b = bus(1.1, 0, 0.18); tn(b, { dur: 0.16, peak: 0.55, type: 'sine', f0: 170, f1: 58 }); nz(b, { dur: 0.13, peak: 0.3, type: 'lowpass', f0: 1300, f1: 180 }); }
 /** a footstep: a dull boot thump on a hard floor, with a tiny metallic scuff. `k` 0..1 = how fast you run */
 export function step(k = 1) {
-  if (!ready() || !gate('step', 110)) return; const b = bus(0.3 + 0.32 * k, 0, 0.1);
-  thump(b, { dur: 0.1, peak: 0.55, f: 84 * jit(0.12), drop: 1.7 });
-  nz(b, { dur: 0.055, peak: 0.2, type: 'bandpass', f0: 1000 * jit(0.2), f1: 420, q: 0.9 });
-  if (k > 0.5) ring(b, { t: 0.004, dur: 0.03, peak: 0.035, f: 2300 * jit(0.15) });
+  if (!ready() || live > 14 || !gate('step', 110)) return; const b = bus(0.3 + 0.32 * k, 0, 0);          // no reverb send: footsteps are frequent
+  thump(b, { dur: 0.09, peak: 0.55, f: 84 * jit(0.12), drop: 1.7 });
+  nz(b, { dur: 0.05, peak: 0.2, type: 'bandpass', f0: 1000 * jit(0.2), f1: 420, q: 0.9 });
 }
 /** pushing off the floor */
 export function jump() {
@@ -262,7 +261,7 @@ export function land(v: number) {
 }
 /** low health: a slow double heartbeat (louder the worse it gets, k 0..1) */
 export function heartbeat(k = 1) {
-  if (!ready() || !gate('heart', 500)) return; const b = bus(0.7 + 0.5 * k, 0, 0.1);
+  if (!ready() || !gate('heart', 500)) return; const b = bus(0.7 + 0.5 * k, 0, 0);
   thump(b, { dur: 0.16, peak: 0.85, f: 52, drop: 1.6 }); thump(b, { t: 0.2, dur: 0.14, peak: 0.55, f: 46, drop: 1.5 });
 }
 /** coming back into the arena: a rising shimmer */

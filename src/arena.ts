@@ -120,7 +120,7 @@ export class Arena {
   private parts = new Map<Part, THREE.BufferGeometry[]>();
   constructor(private q: Quality) {
     pads.forEach((p, i) => this.group.add(buildPad(p, i, { beams: q.padBeams })));
-    for (const t of teleporters) { const g = buildTeleporter(t); this.group.add(g.gate, g.exit); this.spin.push(...g.spin); }
+    for (const t of teleporters) { const g = buildTeleporter(t, q.padBeams); this.group.add(g.gate, g.exit); this.spin.push(...g.spin); }
   }
   private spin: THREE.Object3D[] = [];
 

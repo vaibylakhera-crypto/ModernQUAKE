@@ -65,6 +65,7 @@ export class Announcer {
   }
   private speak(text: string) {
     try {
+      if (matchMedia('(pointer: coarse)').matches) return;               // phones: speech can interrupt the game's audio (iOS), so banner + stinger only
       if (!('speechSynthesis' in window)) return;
       const u = new SpeechSynthesisUtterance(text.toLowerCase()), v = this.pickVoice(); if (v) u.voice = v;
       u.pitch = 0.3; u.rate = 0.8; u.volume = 1;                                       // low and measured, like an arena announcer

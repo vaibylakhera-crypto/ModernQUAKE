@@ -127,7 +127,7 @@ export class Music {
     this.stopAll(); const t = this.current;
     if (t.kind === 'file') { void this.playFile(t as Track & { blob: Blob }); return; }
     const c = this.ctx!; this.stepNo = 0; this.nextT = c.currentTime + 0.12;
-    this.timer = window.setInterval(() => { this.run(c.currentTime + 0.4); }, 50);
+    this.timer = window.setInterval(() => { this.run(c.currentTime + 1.2); }, 100);     // schedule well ahead: a slow frame can't leave a gap
   }
   private stopAll() {
     clearInterval(this.timer); this.timer = 0;
