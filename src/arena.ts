@@ -12,11 +12,11 @@ import { buildPad, padTime } from './pads';
 const tex = (() => {
   const loader = new THREE.TextureLoader();
   const cache = new Map<string, THREE.Texture>();
-  return (name: string) => {
+  return (name: string, data = false) => {          // data = normal/specular maps (stored linear, not sRGB colour)
     let t = cache.get(name);
     if (!t) {
       t = loader.load(`/tex-alien/${name}.webp`);
-      t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
+      t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = data ? THREE.NoColorSpace : THREE.SRGBColorSpace; t.anisotropy = 8;
       cache.set(name, t);
     }
     return t;
@@ -58,6 +58,34 @@ function splitTop(g: THREE.BufferGeometry): { top: THREE.BufferGeometry; rest: T
     return out;
   };
   return { top: pick(topIdx), rest: pick(restIdx) };
+}
+
+/**
+ * platform top as a 1 m grid: UVs put one 4 m floor tile per 4x4 m cell; vertex colours give every 4 m cell its own
+ * slight tint/brightness (hides the texture repeat) and darken the last ~1.5 m before the platform edge (grime / AO).
+ */
+function floorGrid(min: THREE.Vector3, max: THREE.Vector3): THREE.BufferGeometry {
+  const pos: number[] = [], nor: number[] = [], uv: number[] = [], col: number[] = [];
+  const nx = Math.max(1, Math.round(max.x - min.x)), nz = Math.max(1, Math.round(max.z - min.z));
+  const sx = (max.x - min.x) / nx, sz = (max.z - min.z) / nz, y = max.y;
+  const shade = (x: number, z: number, tx: number, tz: number) => {
+    const d = Math.min(x - min.x, max.x - x, z - min.z, max.z - z);
+    const edge = 0.6 + 0.4 * Math.min(1, d / 1.5);
+    const r = rnd(tx * 3.1 + 0.5, tz * 7.7 + 0.5), r2 = rnd(tz * 1.7, tx * 5.3);
+    const k = (0.84 + r * 0.24) * edge;
+    return [k * (0.97 + r2 * 0.06), k, k * (1.03 - r2 * 0.06)];
+  };
+  for (let i = 0; i < nx; i++) for (let j = 0; j < nz; j++) {
+    const x0 = min.x + i * sx, x1 = x0 + sx, z0 = min.z + j * sz, z1 = z0 + sz;
+    const tx = Math.floor(((x0 + x1) / 2) / 4), tz = Math.floor(((z0 + z1) / 2) / 4);
+    for (const [x, z] of [[x0, z0], [x0, z1], [x1, z1], [x0, z0], [x1, z1], [x1, z0]]) {
+      pos.push(x, y, z); nor.push(0, 1, 0); uv.push(x / 4, -z / 4); col.push(...shade(x, z, tx, tz));
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  return g;
 }
 
 /** jagged rock cone hanging under a platform (floating-fortress silhouette) */
@@ -102,6 +130,12 @@ export class Arena {
     const mat = (part: Part): THREE.Material => {
       if (part === 'lamp') return new THREE.MeshBasicMaterial({ color: 0xffa050 });
       const o = { map: tex(part), vertexColors: true };
+      if (part === 'floor') {
+        // deck plates: normal map for real relief under the lights, specular map so worn metal glints and grime stays dull
+        return this.q.pbr
+          ? new THREE.MeshStandardMaterial({ ...o, normalMap: tex('floor_n', true), roughnessMap: tex('floor_r', true), roughness: 1, metalness: 0.55 })
+          : new THREE.MeshPhongMaterial({ ...o, normalMap: tex('floor_n', true), specularMap: tex('floor_s', true), specular: 0x8a8a84, shininess: 42 });
+      }
       return this.q.pbr ? new THREE.MeshStandardMaterial({ ...o, roughness: part === 'trim' ? 0.55 : 0.9, metalness: part === 'trim' ? 0.45 : 0.05 })
         : new THREE.MeshLambertMaterial(o);
     };
@@ -113,8 +147,8 @@ export class Arena {
 
   private platform(b: Box, i: number) {
     const min = new THREE.Vector3(...b.min), max = new THREE.Vector3(...b.max);
-    const { top, rest } = splitTop(brush(min, max, { top: 5, side: 4, aoLow: 0.35 }));
-    this.add('floor', top); this.add('wall', rest);
+    const { rest } = splitTop(brush(min, max, { side: 4, aoLow: 0.35 }));
+    this.add('floor', floorGrid(min, max)); this.add('wall', rest);
     // corroded iron lip around the top edge (slightly proud of the walls)
     const t = 0.12, lipH = 0.55, y0 = max.y - lipH, y1 = max.y + 0.03;
     const lips: [THREE.Vector3, THREE.Vector3][] = [
