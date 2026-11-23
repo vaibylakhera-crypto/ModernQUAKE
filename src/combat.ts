@@ -179,6 +179,10 @@ export interface CombatHooks {
   landed?(tg: Target, dmg: number, point: THREE.Vector3, weapon: WeaponId, killed: boolean): void;
   /** an explosion happened at pos (sound) */
   boom?(pos: THREE.Vector3, size: number): void;
+  /** true for teammates of the local player: attacks pass through them (no friendly fire) */
+  friendly?(tg: Target): boolean;
+  /** true when a projectile's owner is on the local player's team */
+  ownerFriendly?(owner: string): boolean;
   /** online host: bots that other players' projectiles can hit (owner = shooter id). Empty for bot-owned shots */
   foreignTargets?(owner: string): Target[];
   /** a foreign projectile hit one of those targets */
@@ -257,7 +261,7 @@ export class Combat {
   private trace(o: THREE.Vector3, d: THREE.Vector3, range: number, dmg: number, kind: string, pierce: boolean, weapon: WeaponId): { point: THREE.Vector3; n: THREE.Vector3 | null; hitWorld: boolean } {
     const w = rayWorld(o, d, range); const maxT = w ? w.t : range;
     const hits: { t: number; tg: Target }[] = [];
-    for (const tg of this.hooks.targets()) { if (!tg.alive) continue; const t = rayTarget(o, d, maxT, tg); if (t !== null) hits.push({ t, tg }); }
+    for (const tg of this.hooks.targets()) { if (!tg.alive || this.hooks.friendly?.(tg)) continue; const t = rayTarget(o, d, maxT, tg); if (t !== null) hits.push({ t, tg }); }
     hits.sort((a, b) => a.t - b.t);
     let endT = maxT, hitWorld = !!w;
     for (const h of hits) {
@@ -272,7 +276,7 @@ export class Combat {
   private melee(eye: THREE.Vector3, dir: THREE.Vector3, range: number, dmg: number) {
     const w = rayWorld(eye, dir, range);
     for (const tg of this.hooks.targets()) {
-      if (!tg.alive) continue;
+      if (!tg.alive || this.hooks.friendly?.(tg)) continue;
       const c = tg.pos.clone(); c.y += tg.height * 0.6; const to = c.sub(eye); const dist = to.length();
       if (dist < range + tg.radius && to.normalize().dot(dir) > 0.55) { const hp = eye.clone().addScaledVector(dir, Math.min(dist, range)); this.strike(tg, dmg, eye, dir, 'blade', 'blade', hp); this.blood(hp, dir); this.sparks(eye.clone().addScaledVector(dir, Math.min(dist, range)), dir.clone().negate(), 0x5ee8ff, 12); return; }
     }
@@ -404,9 +408,9 @@ export class Combat {
       const step = pr.vel.clone().multiplyScalar(dt); const dist = step.length(); const dir = step.clone().divideScalar(dist || 1);
       let hitT = dist, kindHit: 'none' | 'world' | 'target' | 'player' = 'none'; let n: THREE.Vector3 | null = null, tgHit: Target | null = null;
       const w = rayWorld(pr.pos, dir, dist); if (w) { hitT = w.t; n = w.n; kindHit = 'world'; }
-      if (pr.fromPlayer) { for (const tg of this.hooks.targets()) { if (!tg.alive) continue; const t = rayTarget(pr.pos, dir, hitT, tg); if (t !== null && t <= hitT) { hitT = t; kindHit = 'target'; tgHit = tg; n = dir.clone().negate(); } } }
+      if (pr.fromPlayer) { for (const tg of this.hooks.targets()) { if (!tg.alive || this.hooks.friendly?.(tg)) continue; const t = rayTarget(pr.pos, dir, hitT, tg); if (t !== null && t <= hitT) { hitT = t; kindHit = 'target'; tgHit = tg; n = dir.clone().negate(); } } }
       else {
-        const b = this.hooks.playerBody(); const t = rayTarget(pr.pos, dir, hitT, { pos: b.pos, radius: b.radius, height: b.height } as unknown as Target); if (t !== null && t <= hitT) { hitT = t; kindHit = 'player'; n = dir.clone().negate(); }
+        const b = this.hooks.playerBody(); const t = this.hooks.ownerFriendly?.(pr.owner) ? null : rayTarget(pr.pos, dir, hitT, { pos: b.pos, radius: b.radius, height: b.height } as unknown as Target); if (t !== null && t <= hitT) { hitT = t; kindHit = 'player'; n = dir.clone().negate(); }
         for (const tg of this.hooks.foreignTargets?.(pr.owner) ?? []) { if (!tg.alive) continue; const t2 = rayTarget(pr.pos, dir, hitT, tg); if (t2 !== null && t2 <= hitT) { hitT = t2; kindHit = 'target'; tgHit = tg; n = dir.clone().negate(); } }
       }
       const st = WEAPON_DEFS[pr.kind].stats;
@@ -471,7 +475,7 @@ export class Combat {
 
   private splashTargets(p: THREE.Vector3, radius: number, dmg: number, skip: Target | null, weapon: WeaponId) {
     for (const tg of this.hooks.targets()) {
-      if (!tg.alive || tg === skip) continue;
+      if (!tg.alive || tg === skip || this.hooks.friendly?.(tg)) continue;
       const c = tg.pos.clone(); c.y += tg.height * 0.5; const d = c.distanceTo(p);
       if (d < radius) { const hp = c.clone(); this.strike(tg, dmg * (1 - d / radius), p, c.sub(p).normalize(), 'splash', weapon, hp); }
     }

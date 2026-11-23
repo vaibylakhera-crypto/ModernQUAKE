@@ -10,6 +10,8 @@ export interface TouchHooks {
   jump(): void;
   nextWeapon(): void;
   pause(): void;
+  chat(): void;
+  mic(on: boolean): void;
 }
 
 export class TouchControls {
@@ -18,7 +20,7 @@ export class TouchControls {
   readonly el: HTMLDivElement;
   private stickId: number | null = null; private sx = 0; private sy = 0;
   private lookIds = new Map<number, { x: number; y: number }>();
-  private fireId: number | null = null;
+  private fireId: number | null = null; private micId: number | null = null;
   private base: HTMLDivElement; private knob: HTMLDivElement;
 
   constructor(private hooks: TouchHooks) {
@@ -30,6 +32,8 @@ export class TouchControls {
       <button class="tbtn tjump" data-b="jump">${svg('<path d="M6 13l6-6 6 6M6 19l6-6 6 6"/>')}<span>JUMP</span></button>
       <button class="tbtn tcrouch" data-b="crouch">${svg('<path d="M6 8l6 6 6-6M6 19h12"/>')}<span>DUCK</span></button>
       <button class="tbtn tweap" data-b="weap">${svg('<path d="M4 8h13l-3-3M20 16H7l3 3"/>')}</button>
+      <button class="tbtn tchat" data-b="chat">${svg('<path d="M4 5h16v10H9l-5 4z"/>')}</button>
+      <button class="tbtn tmic" data-b="mic">${svg('<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>')}</button>
       <button class="tbtn tpause" data-b="pause">${svg('<path d="M9 6v12M15 6v12"/>')}</button>`;
     document.body.appendChild(el);
     this.base = el.querySelector<HTMLDivElement>('.tstick')!; this.knob = this.base.querySelector<HTMLDivElement>('i')!;
@@ -68,6 +72,8 @@ export class TouchControls {
         else if (b === 'crouch') { this.crouch = !this.crouch; btn.classList.toggle('on', this.crouch); }
         else if (b === 'weap') { this.hooks.nextWeapon(); flash(btn); }
         else if (b === 'pause') { this.hooks.pause(); }
+        else if (b === 'chat') { this.hooks.chat(); flash(btn); }
+        else if (b === 'mic') { this.micId = t.identifier; this.hooks.mic(true); btn.classList.add('on'); }
         continue;
       }
       if (t.clientX < innerWidth * 0.42 && this.stickId === null) {
@@ -105,6 +111,7 @@ export class TouchControls {
     e.preventDefault();
     for (const t of Array.from(e.changedTouches)) {
       if (t.identifier === this.stickId) { this.stickId = null; this.forward = this.side = 0; this.home(); }
+      if (t.identifier === this.micId) { this.micId = null; this.hooks.mic(false); this.el.querySelector('.tmic')!.classList.remove('on'); }
       if (t.identifier === this.fireId) { this.fireId = null; this.fire = false; this.el.querySelector('.tfire')!.classList.remove('on'); }
       this.lookIds.delete(t.identifier);
     }

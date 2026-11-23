@@ -25,7 +25,10 @@ import { setupAssets } from './assets';
 import * as sfx from './sfx';
 import { Gyro } from './gyro';
 import { LiftSystem } from './lifts';
-import { lifts as __lifts } from './level';
+import { TEAMS } from './teams';
+import { Ctf } from './ctf';
+import { Voice, QUICK, quickText, VoiceMode } from './comms';
+import { lifts as __lifts, flags as flagBases } from './level';
 import { WeaponId } from './weapons';
 
 const Q = getQuality();
@@ -190,13 +193,19 @@ addEventListener('mousemove', e => {
 });
 addEventListener('keydown', e => {
   if (!locked() && (e.code === 'Escape' || e.code === 'Enter') && !(e.target instanceof HTMLInputElement) && (menu.screen === 'pause' || menu.screen === 'lobby')) { resume(); return; }
+  if (mode === 'online' && locked()) {
+    if (e.code === 'KeyY') { toggleQuick(); return; }
+    if (e.code === 'KeyV' && !e.repeat) { void voice.press(true); return; }
+    if (e.code === 'KeyM' && !e.repeat) { void voice.toggleOpen(); return; }
+    if (qchatOpen && /^Digit[1-8]$/.test(e.code)) { sendQuick(QUICK[Number(e.code.slice(5)) - 1].k); return; }
+  }
   if (e.code === 'Tab') { e.preventDefault(); if (locked()) { pushView(); menu.showScores(true); } return; }
   if (e.repeat) return;           // holding space never auto-hops
   keys.add(e.code);
   if (e.code === 'Space') jumpQueued = true;
   if (e.code === 'KeyR') { die('DIED'); }
 });
-addEventListener('keyup', e => { keys.delete(e.code); if (e.code === 'Tab') menu.showScores(false); });
+addEventListener('keyup', e => { keys.delete(e.code); if (e.code === 'Tab') menu.showScores(false); if (e.code === 'KeyV') void voice.press(false); });
 let touch: TouchControls | null = null;
 if (TOUCH) {
   document.body.classList.add('touch');
@@ -209,6 +218,8 @@ if (TOUCH) {
     jump() { jumpQueued = true; },
     nextWeapon() { vm.select(loadout.step(vm.target, 1)); },
     pause() { touchPlaying = false; touch!.show(false); openPause(); },
+    chat() { toggleQuick(); },
+    mic(on) { if (voice.mode === 'open') { if (on) void voice.toggleOpen(); } else void voice.press(on); },
   });
   touch.show(false);
   document.addEventListener('visibilitychange', () => { if (document.hidden && touchPlaying) { touchPlaying = false; touch!.show(false); openPause(); } });
@@ -243,7 +254,7 @@ addEventListener('mousedown', e => { if (locked() && e.button === 0) mouseDown =
 addEventListener('mouseup', e => { if (e.button === 0) mouseDown = false; });
 addEventListener('wheel', e => { if (locked()) vm.select(loadout.step(vm.target, e.deltaY > 0 ? 1 : -1)); });
 addEventListener('keydown', e => {
-  const n = Number(e.code.replace('Digit', ''));
+  const n = qchatOpen ? 0 : Number(e.code.replace('Digit', ''));
   if (n >= 1 && n <= WEAPON_ORDER.length && loadout.has(WEAPON_ORDER[n - 1])) vm.select(WEAPON_ORDER[n - 1]);
 });
 
@@ -274,11 +285,14 @@ let frags = 0; const fragsEl = document.getElementById('frags')!;
 const combat = new Combat(scene, {
   targets: () => targets,
   playerBody: () => { playerBody.pos.set(player.x, player.y, player.z); playerBody.height = player.height; return playerBody; },
-  hurt(dmg, dir, weapon, owner) { blame(owner, weapon); showDamageDir(-dir.x, -dir.z); buzz(30); player.knock(dir.x * 1.5, 0.3, dir.z * 1.5); sfx.hurt(); if (player.takeDamage(dmg)) die('DIED'); },
+  friendly: tg => { const t = myTeam(); return t > 0 && ((tg as any).team ?? 0) === t; },
+  ownerFriendly: owner => friendlyOwner(owner),
+  hurt(dmg, dir, weapon, owner) { if (friendlyOwner(owner)) return; blame(owner, weapon); showDamageDir(-dir.x, -dir.z); buzz(30); player.knock(dir.x * 1.5, 0.3, dir.z * 1.5); sfx.hurt(); if (player.takeDamage(dmg)) die('DIED'); },
   landed(tg, dmg, point, weapon, killed) { onLanded(tg, dmg, point, weapon, killed); },
   boom(pos, size) { sfx.boom(size, pos.distanceTo(camera.position)); },
   explode(pos, radius, dmg, knock, fromPlayer, weapon, owner) {
-    // splash on the local player (rocket jumps!)
+    // splash on the local player (rocket jumps!); teammates' splash does not hurt
+    if (!fromPlayer && friendlyOwner(owner)) return;
     const c = new THREE.Vector3(player.x, player.y + 0.9, player.z); const d = c.distanceTo(pos);
     if (d >= radius) return;
     const f = 1 - d / radius; const dir = c.sub(pos).normalize(); dir.y += 0.3; dir.normalize();
@@ -298,10 +312,23 @@ const savedName = (() => { try { return (localStorage.getItem('mq-name') || '').
 let myName = ((qs.get('name') || savedName || 'PLAYER').toUpperCase().replace(/[^\w \-]/g, '').slice(0, 14)) || 'PLAYER';
 let mode: 'title' | 'solo' | 'online' = 'title';
 const intParam = (k: string, d: number) => { const v = Number(qs.get(k)); return qs.has(k) && Number.isFinite(v) ? v : d; };
-let cfg: MatchCfg = { map: MAP, mode: qs.get('mode2') || 'ffa', bots: intParam('bots', 3), skill: intParam('skill', 1), frag: intParam('frag', 20), caps: intParam('caps', 3), time: intParam('time', 10), open: true };
+let cfg: MatchCfg = { map: MAP, mode: ['ffa', 'tdm', 'ctf'].includes(qs.get('gm') || '') ? qs.get('gm')! : 'ffa', bots: intParam('bots', 3), skill: intParam('skill', 1), frag: intParam('frag', 20), caps: intParam('caps', 3), time: intParam('time', 10), open: true };
+let ts: { 1: number; 2: number } = { 1: 0, 2: 0 };                   // team scores (TDM frags / CTF captures)
+let soloTeam = 0;                                                       // the local player's team in a solo match
+type FlagSt = { s: 'base' | 'carried' | 'dropped'; c: number; p: number[] | null };
+let flagSt: { 1: FlagSt; 2: FlagSt } = { 1: { s: 'base', c: 0, p: null }, 2: { s: 'base', c: 0, p: null } };
 let matchState: 'lobby' | 'playing' | 'ended' = 'playing';
 let endsAt = 0, timeOffset = 0, hostId = 0;
 const isHost = () => mode === 'online' && net.online && hostId === net.id;
+const teamMode = () => cfg.mode !== 'ffa';
+const myTeam = () => (!teamMode() ? 0 : mode === 'online' ? (scoreboard.find(p => p.id === net.id)?.team ?? 0) : soloTeam);
+/** team of a projectile's owner: a bot's name (solo) or a network id as text (online) */
+function teamOfOwner(owner: string): number {
+  if (!owner || owner === 'SELF') return 0;
+  if (/^\d+$/.test(owner)) return scoreboard.find(p => p.id === Number(owner))?.team ?? 0;
+  return bots.find(b => b.name === owner)?.team ?? 0;
+}
+const friendlyOwner = (owner: string) => { const t = myTeam(); return t > 0 && teamOfOwner(owner) === t; };
 /** solo pauses while the menu is open; online the world keeps going */
 const paused = () => mode !== 'online' && (menu.open || guideOpen);
 
@@ -310,14 +337,22 @@ const bots: Bot[] = [];
 const botVel = new THREE.Vector3(), botPrev = new THREE.Vector3(); let botPrevSet = false;
 const botCtxPlayer: BotTarget = { pos: new THREE.Vector3(), eye: new THREE.Vector3(), vel: botVel };
 const humanTargets = new Map<number, BotTarget>();
+const botViews = new WeakMap<Bot, BotTarget>();
+function botView(o: Bot): BotTarget { let v = botViews.get(o); if (!v) botViews.set(o, (v = { pos: o.pos, eye: new THREE.Vector3(), vel: o.vel })); v.eye.set(o.pos.x, o.pos.y + 1.5, o.pos.z); return v; }
 const zeroVel = new THREE.Vector3();
 const botCtx: BotCtx = {
   player: botCtxPlayer,
+  /** the nearest living enemy: the local player, other humans (online) and the other team's bots (everyone's an enemy in deathmatch) */
   target(b) {
-    if (mode !== 'online') return botCtxPlayer;
-    let best = botCtxPlayer, bd = Math.hypot(botCtxPlayer.pos.x - b.pos.x, botCtxPlayer.pos.z - b.pos.z);
-    for (const t of humanTargets.values()) { const d = Math.hypot(t.pos.x - b.pos.x, t.pos.z - b.pos.z); if (d < bd) { bd = d; best = t; } }
-    return best;
+    let best: BotTarget | null = null, bd = 1e9;
+    const consider = (t: BotTarget, team: number) => {
+      if (b.team && team === b.team) return;
+      const d = Math.hypot(t.pos.x - b.pos.x, t.pos.z - b.pos.z) + Math.abs(t.pos.y - b.pos.y) * 2; if (d < bd) { bd = d; best = t; }
+    };
+    if (player.health > 0) consider(botCtxPlayer, myTeam());
+    if (mode === 'online') for (const [id, t] of humanTargets) consider(t, remotes.get(id)?.team ?? 0);
+    for (const o of bots) if (o !== b && o.alive) consider(botView(o), o.team);
+    return best ?? botCtxPlayer;
   },
   fire(id, o, d, dmg, sp, owner, bot) {
     combat.fireEnemy(id, o, d, dmg, sp, owner); sfx.shot(id, Math.min(0.8, 9 / (o.distanceTo(camera.position) + 4)));
@@ -325,13 +360,14 @@ const botCtx: BotCtx = {
   },
   onKilled(b, by, w) {
     if (mode === 'online') { net.send({ t: 'botdead', id: b.netId, by: by ? Number(by) : net.id, w }); return; }
-    if (matchState === 'playing') { score('me').frags++; score(b.name).deaths++; }
-    say(`YOU FRAGGED ${b.name}`); refreshFrags(); checkSoloEnd();
+    soloKill(by || 'me', b.name);
+    if (by && by !== 'me') { feed(by, (w in WEAPON_DEFS ? w : '') as WeaponId | '', b.name, false, false, false); }
+    else say(`YOU FRAGGED ${b.name}`);
   },
   onHit() { /* feedback comes from combat.landed */ },
 };
 let wantBots: BotDef[] = [];
-const sameBot = (b: Bot, d: BotDef) => b.name === d.name && b.netId === (d.netId ?? 0);
+const sameBot = (b: Bot, d: BotDef) => b.name === d.name && b.netId === (d.netId ?? 0) && b.team === (d.team ?? 0);
 /** make the local bot set match `defs` (spawns are async: anything no longer wanted when it arrives is dropped) */
 function setBots(defs: BotDef[], skill: number) {
   wantBots = defs;
@@ -345,7 +381,18 @@ function setBots(defs: BotDef[], skill: number) {
     });
   }
 }
-const w0 = (b: Bot): BotDef => ({ name: b.name, weapon: b.weaponId, color: 0, netId: b.netId });
+const w0 = (b: Bot): BotDef => ({ name: b.name, weapon: b.weaponId, color: 0, netId: b.netId, team: b.team });
+const soloTeamOf = (k: string) => (k === 'me' ? soloTeam : (bots.find(b => b.name === k)?.team ?? 0));
+/** solo scoring: deaths always count; kills count unless they are suicides or team kills; TDM also scores the team */
+function soloKill(killerKey: string, victimKey: string) {
+  if (matchState !== 'playing') return;
+  score(victimKey).deaths++;
+  if (!killerKey || killerKey === victimKey) { refreshFrags(); return; }
+  const kt = soloTeamOf(killerKey), vt = soloTeamOf(victimKey);
+  if (kt && kt === vt) { refreshFrags(); return; }
+  score(killerKey).frags++; if (cfg.mode === 'tdm' && kt) ts[kt as 1 | 2]++;
+  refreshFrags(); checkSoloEnd();
+}
 
 // ---- scores ----
 const soloScore = new Map<string, { frags: number; deaths: number }>();
@@ -355,31 +402,31 @@ let scoreboard: PlayerInfo[] = [];
 function board(): PlayerInfo[] {
   if (mode === 'online') return scoreboard;
   const me = score('me');
-  return [{ id: 0, name: myName, color: 0xffd24a, frags: me.frags, deaths: me.deaths },
-    ...bots.map((b, i) => ({ id: i + 1, name: b.name, color: BOT_ROSTER.find(r => r.name === b.name)?.color ?? 0xffffff, frags: score(b.name).frags, deaths: score(b.name).deaths, bot: true }))];
+  return [{ id: 0, name: myName, color: 0xffd24a, team: soloTeam, frags: me.frags, deaths: me.deaths },
+    ...bots.map((b, i) => ({ id: i + 1, name: b.name, color: BOT_ROSTER.find(r => r.name === b.name)?.color ?? 0xffffff, team: b.team, frags: score(b.name).frags, deaths: score(b.name).deaths, bot: true }))];
 }
 const myId = () => mode === 'online' ? net.id : 0;
 function refreshFrags() {
   const b = [...board()].sort((x, y) => y.frags - x.frags || x.deaths - y.deaths), i = b.findIndex(p => p.id === myId());
-  const me = b[i]; fragsEl.textContent = `${me ? me.frags : frags} FRAGS${mode !== 'title' && b.length > 1 && i >= 0 ? `  ·  #${i + 1} OF ${b.length}` : ''}`;
+  const me = b[i]; fragsEl.textContent = `${me ? me.frags : frags} FRAGS${mode !== 'title' && b.length > 1 && i >= 0 && !teamMode() ? `  ·  #${i + 1} OF ${b.length}` : ''}`;
 }
 
 // ---- match flow ----
 const nowServer = () => Date.now() + timeOffset;
 const remaining = () => endsAt ? Math.max(0, (endsAt - nowServer()) / 1000) : -1;
 function startSoloMatch() {
-  soloScore.clear(); matchState = 'playing'; endsAt = cfg.time ? Date.now() + cfg.time * 60000 : 0; timeOffset = 0;
+  ts = { 1: 0, 2: 0 }; soloScore.clear(); matchState = 'playing'; endsAt = cfg.time ? Date.now() + cfg.time * 60000 : 0; timeOffset = 0;
   player.respawn(); yaw = player.yaw; pitch = 0; loadout.reset(); vm.show('pistol'); lastBar = '';
   for (const b of bots) b.respawn(); menu.hideEnd(); refreshFrags(); say('FIGHT!'); pushView();
 }
 let soloEndTimer = 0;
 function checkSoloEnd() {
   if (mode !== 'solo' || matchState !== 'playing') return;
-  const b = board(), lead = Math.max(...b.map(p => p.frags));
+  const b = board(), lead = teamMode() ? Math.max(ts[1], ts[2]) : Math.max(...b.map(p => p.frags));
   if ((cfg.frag && lead >= cfg.frag) || (endsAt && Date.now() >= endsAt)) {
     matchState = 'ended';
     const sorted = [...b].sort((x, y) => y.frags - x.frags || x.deaths - y.deaths);
-    menu.showEnd(sorted, sorted[0]?.id ?? -1, 0, 10); sfx.kill();
+    menu.showEnd(sorted, sorted[0]?.id ?? -1, 0, 10, teamMode() ? (ts[1] > ts[2] ? 1 : ts[2] > ts[1] ? 2 : 0) : 0, ts); sfx.kill();
     clearTimeout(soloEndTimer); soloEndTimer = window.setTimeout(() => { if (mode === 'solo') startSoloMatch(); }, 10000);
     pushView();
   }
@@ -395,6 +442,11 @@ function matchTick(dt: number) {
     const r = remaining(), clock = r >= 0 ? `<b>${Math.floor(r / 60)}:${String(Math.floor(r % 60)).padStart(2, '0')}</b>` : '';
     if (matchState === 'lobby') text = isHost() ? 'WARMUP · OPEN MENU TO START' : 'WARMUP · WAITING FOR HOST';
     else if (matchState === 'ended') text = 'MATCH OVER';
+    else if (teamMode()) {
+      const limit = cfg.mode === 'ctf' ? `FIRST TO ${cfg.caps}` : cfg.frag ? `FIRST TO ${cfg.frag}` : '';
+      text = `<span class="tr">RED ${ts[1]}</span> ${clock ? `<b>${clock}</b>` : '·'} <span class="tb">${ts[2]} BLUE</span>${limit ? `<br><small>${limit}</small>` : ''}`;
+      if (cfg.mode === 'ctf') { const fl = (n: 1 | 2) => { const s = flagSt[n]; return s.s === 'base' ? 'HOME' : s.s === 'carried' ? (s.c === net.id ? 'YOU HAVE IT' : 'TAKEN') : 'DROPPED'; }; text += `<br><small><span class="tr">⚑ ${fl(1)}</span> &nbsp; <span class="tb">⚑ ${fl(2)}</span></small>`; }
+    }
     else text = [clock, cfg.frag ? `FIRST TO ${cfg.frag}` : ''].filter(Boolean).join(' · ');
   }
   if (matchEl.innerHTML !== text) matchEl.innerHTML = text;
@@ -403,7 +455,7 @@ function matchTick(dt: number) {
 function pushView() {
   const v: LobbyView = {
     mode: mode === 'online' ? 'online' : 'solo', room: roomCode, link: `${location.origin}/?room=${roomCode}`,
-    meId: myId(), hostId, isHost: isHost(), cfg, state: matchState, remaining: remaining(), players: board(),
+    meId: myId(), hostId, isHost: isHost(), cfg, state: matchState, remaining: remaining(), players: board(), ts, myTeam: myTeam(),
     status: mode === 'online' ? (net.online ? '' : netState === 'full' ? 'ROOM IS FULL' : netState === 'connecting' ? 'CONNECTING…' : 'DISCONNECTED') : '',
   };
   menu.setView(v);
@@ -468,7 +520,7 @@ function addRemote(p: PlayerInfo) {
 function dropRemote(id: number) { const r = remotes.get(id); if (!r) return; r.dispose(); const i = targets.indexOf(r); if (i >= 0) targets.splice(i, 1); remotes.delete(id); humanTargets.delete(id); }
 /** host runs the room's bots locally; everyone else shows them as remote players */
 function syncNetBots() {
-  const defs: BotDef[] = scoreboard.filter(p => p.bot).map(p => ({ name: p.name, weapon: p.weapon ?? 'plasma', color: p.color, netId: p.id }));
+  const defs: BotDef[] = scoreboard.filter(p => p.bot).map(p => ({ name: p.name, weapon: p.weapon ?? 'plasma', color: p.color, netId: p.id, team: p.team ?? 0 }));
   if (isHost()) { for (const d of defs) dropRemote(d.netId!); setBots(defs, cfg.skill); }
   else { setBots([], cfg.skill); for (const p of scoreboard) if (p.bot) addRemote(p); }
   for (const id of [...remotes.keys()]) if (!scoreboard.some(p => p.id === id)) dropRemote(id);
@@ -479,20 +531,27 @@ function applyRoom(info: RoomInfo) {
   if (info.cfg.map !== MAP) { reloadInto({ room: roomCode, name: myName, map: info.cfg.map }); return false; }
   cfg = info.cfg; matchState = info.state; timeOffset = info.now - Date.now(); endsAt = info.endsAt; hostId = info.host;
   scoreboard = info.players; for (const p of scoreboard) if (!p.bot) addRemote(p);
-  syncNetBots(); refreshFrags(); drawNet(); pushView(); return true;
+  ts = info.ts ?? { 1: 0, 2: 0 }; flagSt = info.flags ?? flagSt;
+  syncNetBots(); for (const p of scoreboard) remotes.get(p.id)?.setTeam(p.team ?? 0);     // red / blue outfits
+  const mt = myTeam(); if (mt !== armTeam) { armTeam = mt; vm.setTeam(mt); }
+  refreshFrags(); drawNet(); pushView(); syncVoicePeers(); return true;
 }
-let localKillAt = 0;
+let localKillAt = 0, armTeam = 0;
 const net = new Net({
   status(st) { netState = st; drawNet(); pushView(); if (st === 'offline' && mode === 'online') say('DISCONNECTED'); },
   welcome(_id, info) { if (applyRoom(info)) say(hostId === net.id ? 'ROOM CREATED' : 'CONNECTED'); },
-  join(p, host) { scoreboard = [...scoreboard.filter(x => x.id !== p.id), p]; hostId = host; if (!p.bot) { addRemote(p); say(`${p.name} JOINED`); } pushView(); },
-  leave(id) { const r = remotes.get(id); if (r) say(`${r.info.name} LEFT`); dropRemote(id); scoreboard = scoreboard.filter(p => p.id !== id); pushView(); },
+  join(p, host) { scoreboard = [...scoreboard.filter(x => x.id !== p.id), p]; hostId = host; if (!p.bot) { addRemote(p); say(`${p.name} JOINED`); } pushView(); syncVoicePeers(); },
+  leave(id) { const r = remotes.get(id); if (r) say(`${r.info.name} LEFT`); dropRemote(id); scoreboard = scoreboard.filter(p => p.id !== id); speaking.delete(id); drawSpeakers(); pushView(); syncVoicePeers(); },
   room(kind, info) {
     if (!applyRoom(info)) return;
     if (kind === 'start') { menu.hideEnd(); player.respawn(); yaw = player.yaw; pitch = 0; loadout.reset(); vm.show('pistol'); lastBar = ''; for (const b of bots) b.respawn(); say('FIGHT!'); sfx.kill(); }
     if (kind === 'lobby') { menu.hideEnd(); say('WARMUP'); }
   },
-  end(b, winner, _why, next) { matchState = 'ended'; scoreboard = b; endsAt = 0; menu.showEnd(b, winner, net.id, next); refreshFrags(); pushView(); },
+  end(b, winner, _why, next, team, tsv) { matchState = 'ended'; scoreboard = b; endsAt = 0; if (tsv) ts = tsv; menu.showEnd(b, winner, net.id, next, team ?? 0, tsv ?? ts); refreshFrags(); pushView(); },
+  flags(fl, tsv, ev) { flagSt = fl; ts = tsv ?? ts; onFlagEvent(ev); pushView(); },
+  chat(from, to, k, txt) { onChat(from, to, k, txt); },
+  rtc(from, d) { onRtc(from, d); },
+  talk(id, on) { onTalk(id, on); },
   host(id) { hostId = id; syncNetBots(); if (id === net.id) say('YOU ARE NOW THE HOST'); pushView(); },
   bots(list) { if (isHost()) return; for (const b of list) remotes.get(b.id)?.setState(b.p, b.yaw, b.w, b.hp, b.dead); },
   renamed(id, name, b) { scoreboard = b; remotes.get(id)?.rename(name); refreshFrags(); pushView(); },
@@ -506,8 +565,9 @@ const net = new Net({
     combat.remoteShot(m.w, o, dirV(m.d), String(id), Number(m.k) || 1); sfx.shot(m.w, Math.min(0.85, 10 / (o.distanceTo(camera.position) + 4)));
   },
   hit(from, dmg, dir, kind) { blame(String(from), (kind in WEAPON_DEFS ? kind : 'pistol') as WeaponId); const d = dirV(dir); showDamageDir(-d.x, -d.z); buzz(30); player.knock(d.x * 1.5, 0.3, d.z * 1.5); sfx.hurt(); if (player.takeDamage(dmg)) die('DIED'); },
-  killed(id, by, b, w) {
-    scoreboard = b; refreshFrags(); pushView();
+  killed(id, by, b, w, tsv, cap) {
+    scoreboard = b; if (tsv) ts = tsv; refreshFrags(); pushView();
+    if (cap) return;                                                          // a flag capture: the flag event announces it
     const v = b.find(p => p.id === id), k = b.find(p => p.id === by);
     if (!v) return;
     const weapon = (w && w in WEAPON_DEFS ? w : '') as WeaponId | '';
@@ -519,7 +579,13 @@ const net = new Net({
   },
 });
 // host: other players' rockets / plasma / nails can hit the host's bots
-combat.hooks.foreignTargets = owner => (isHost() && owner && Number(owner) < 1000 ? bots : []);
+combat.hooks.foreignTargets = owner => {
+  // a bot's shots (solo: its name; online host: its network id) can hurt the other team's bots; everyone's an enemy in deathmatch
+  const ob = bots.find(b => b.name === owner || (b.netId && String(b.netId) === owner));
+  if (ob) return bots.filter(b => b !== ob && b.alive && !(b.team && b.team === ob.team));
+  if (isHost() && owner && Number(owner) < 1000) { const t = teamOfOwner(owner); return bots.filter(b => !(t && b.team === t)); }   // remote humans hit the host's bots, never their own team's
+  return [];
+};
 combat.hooks.foreignHit = (tg, dmg, owner, weapon) => (tg as Bot).hit(dmg, tg.pos, new THREE.Vector3(), weapon, owner, weapon);
 let botSnapAcc = 0;
 function netTick(dt: number) {
@@ -540,23 +606,93 @@ function netTick(dt: number) {
   }
 }
 
+// ---- capture the flag ----
+const ctf = flagBases ? new Ctf(scene, flagBases) : null;
+const _cp = new THREE.Vector3(), _fp = new THREE.Vector3(); let flagCool = 0;
+const carrierPos = (id: number): THREE.Vector3 | null => (id === net.id ? _cp.set(player.x, player.y, player.z) : (remotes.get(id)?.pos ?? null));
+function ctfTick(t: number) {
+  if (!ctf) return;
+  const vis = cfg.mode === 'ctf' && mode === 'online'; ctf.update(t, flagSt, carrierPos, vis);
+  if (!vis || matchState !== 'playing' || !net.online || performance.now() < flagCool) return;
+  const mt = myTeam() as 0 | 1 | 2; if (!mt) return;
+  for (const f of [1, 2] as const) {
+    const st = flagSt[f]; if (st.s === 'carried') continue;
+    const p = ctf.pos(f, st, carrierPos, _fp), dx = player.x - p.x, dz = player.z - p.z, dy = player.y - p.y;
+    if (dx * dx + dz * dz > 4 || dy < -1 || dy > 2.2) continue;
+    const mine = flagSt[(3 - mt) as 1 | 2];
+    if (f !== mt) net.send({ t: 'flag', a: 'take', f });                                        // grab the enemy flag
+    else if (st.s === 'dropped') net.send({ t: 'flag', a: 'return', f });                       // send our flag home
+    else if (mine.s === 'carried' && mine.c === net.id) net.send({ t: 'flag', a: 'cap', f });   // bring theirs to our base
+    else continue;
+    flagCool = performance.now() + 500; break;
+  }
+}
+const nameById = (id: number) => scoreboard.find(p => p.id === id)?.name ?? 'PLAYER';
+function onFlagEvent(ev: any) {
+  if (!ev || !TEAMS[ev.f]) return;
+  const fn = TEAMS[ev.f].name, who = nameById(ev.by);
+  if (ev.k === 'take') { say(ev.by === net.id ? 'YOU HAVE THE FLAG! GET HOME' : `${who} TOOK THE ${fn} FLAG`); sfx.powerup(); }
+  else if (ev.k === 'drop') say(`${fn} FLAG DROPPED`);
+  else if (ev.k === 'return') say(ev.why === 'cap' ? `${TEAMS[3 - ev.f].name} CAPTURED THE FLAG!` : `${fn} FLAG RETURNED`);
+  if (ev.k === 'return' && ev.why === 'cap') sfx.kill();
+}
+
+// ---- quick chat + voice ----
+const esc = (t: string) => String(t).replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
+const chatFeedEl = document.getElementById('chatfeed')!, speakEl = document.getElementById('speakers')!, qchatEl = document.getElementById('qchat')!;
+let chatToTeam = true, qchatOpen = false; const speaking = new Set<number>();
+const voice = new Voice(() => net.id, (to, d) => net.send({ t: 'rtc', to, d }), on => { if (on) speaking.add(net.id); else speaking.delete(net.id); net.send({ t: 'talk', on }); drawSpeakers(); });
+function drawSpeakers() { speakEl.innerHTML = [...speaking].map(id => `<div>🎙 ${esc(id === net.id ? 'YOU' : nameById(id))}</div>`).join(''); }
+function onTalk(id: number, on: boolean) { if (on) speaking.add(id); else speaking.delete(id); drawSpeakers(); }
+function onRtc(from: number, d: any) { if (voice.mode !== 'off') void voice.onSignal(from, d); }
+/** connect voice to the right players: teammates in team games, everyone in deathmatch */
+function syncVoicePeers() {
+  const ids = mode === 'online' && net.online && voice.mode !== 'off' ? scoreboard.filter(p => !p.bot && p.id !== net.id && (!teamMode() || p.team === myTeam())).map(p => p.id) : [];
+  voice.setPeers(ids);
+}
+function onChat(from: number, to: string, k: string, txt: string) {
+  const p = scoreboard.find(x => x.id === from), col = p?.team ? TEAMS[p.team].css : '#ffd9a8';
+  const line = document.createElement('div'); line.className = 'cl';
+  line.innerHTML = `<b style="color:${col}">${esc(p?.name ?? '?')}</b>${to === 'team' ? '<i>TEAM</i>' : ''}${esc(k ? quickText(k) : txt)}`;
+  chatFeedEl.appendChild(line); while (chatFeedEl.children.length > 5) chatFeedEl.firstElementChild!.remove();
+  setTimeout(() => line.remove(), 7000); if (from !== net.id) sfx.pickup();
+}
+function buildQuick() {
+  qchatEl.innerHTML = `<div class="qh"><span>QUICK CHAT</span>${teamMode() ? `<button data-ch="1" class="${chatToTeam ? 'on' : ''}">TEAM</button><button data-ch="0" class="${!chatToTeam ? 'on' : ''}">ALL</button>` : ''}</div>` +
+    QUICK.map((q, i) => `<button data-q="${q.k}"><i>${i + 1}</i>${q.text}</button>`).join('');
+}
+function toggleQuick() { if (mode !== 'online') return; qchatOpen = !qchatOpen; if (qchatOpen) buildQuick(); qchatEl.classList.toggle('open', qchatOpen); }
+function sendQuick(k: string) { net.send({ t: 'chat', to: teamMode() && chatToTeam ? 'team' : 'all', k }); qchatOpen = false; qchatEl.classList.remove('open'); }
+qchatEl.addEventListener('click', e => {
+  const t = (e.target as HTMLElement).closest('button') as HTMLElement | null; if (!t) return;
+  if (t.dataset.q) sendQuick(t.dataset.q); else if (t.dataset.ch) { chatToTeam = t.dataset.ch === '1'; buildQuick(); }
+});
+qchatEl.addEventListener('touchstart', e => e.stopPropagation(), { passive: true });
+document.addEventListener('visibilitychange', () => { if (document.hidden) void voice.press(false); });
+
 // ---- entering sessions (from the menu) ----
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const newCode = () => Array.from({ length: 4 }, () => CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)]).join('');
-const cfgParams = (c: MatchCfg) => ({ map: c.map, bots: String(c.bots), skill: String(c.skill), frag: String(c.frag), time: String(c.time) });
+const cfgParams = (c: MatchCfg) => ({ map: c.map, gm: c.mode, bots: String(c.bots), skill: String(c.skill), frag: String(c.frag), caps: String(c.caps), time: String(c.time) });
+/** solo roster: in team deathmatch the bots split between the player's team (red) and the enemy (blue) */
+function soloBotDefs(c: MatchCfg): BotDef[] {
+  return BOT_ROSTER.slice(0, Math.max(0, Math.min(7, c.bots))).map((d, i) => ({ ...d, team: c.mode === 'tdm' ? (i % 2 === 0 ? 2 : 1) : 0 }));
+}
 function enterSolo(c: MatchCfg, name: string) {
   myName = name;
   if (c.map !== MAP) { reloadInto({ mode: 'solo', name, ...cfgParams(c) }); return; }
   if (mode === 'online') { reloadInto({ mode: 'solo', name, ...cfgParams(c) }); return; }
-  mode = 'solo'; cfg = c; menu.sessionActive = true;
+  if (c.mode === 'ctf') c = { ...c, mode: 'tdm' };                     // capture the flag needs friends online
+  mode = 'solo'; cfg = c; menu.sessionActive = true; soloTeam = c.mode === 'tdm' ? 1 : 0;
   history.replaceState(null, '', `?${new URLSearchParams({ mode: 'solo', ...cfgParams(c) })}`);
-  setBots(BOT_ROSTER.slice(0, c.bots).map(d => ({ ...d })), c.skill);
+  setBots(soloBotDefs(c), c.skill); if (armTeam !== soloTeam) { armTeam = soloTeam; vm.setTeam(soloTeam); }
   startSoloMatch(); resume();
 }
 function enterOnline(code: string, name: string, create?: MatchCfg) {
   myName = name; roomCode = code;
   if ((create && create.map !== MAP) || mode === 'solo') { reloadInto({ room: code, name, map: create?.map ?? MAP, ...(create ? { cfg: JSON.stringify(create) } : {}) }); return; }
   mode = 'online'; menu.sessionActive = true; matchState = 'lobby';
+  document.body.classList.add('online');
   history.replaceState(null, '', `?${new URLSearchParams({ room: code, name, map: MAP })}`);
   try { localStorage.setItem('mq-room', code); } catch { /* ignore */ }
   setBots([], 1); net.connect(code, name, MAP, create); drawNet(); pushView(); menu.show('lobby');
@@ -570,6 +706,13 @@ const menu = new Menu({
   leave() { location.href = location.pathname; },
   hostCfg(c) { if (isHost()) net.send({ t: 'cfg', cfg: c }); },
   hostStart() { if (isHost()) net.send({ t: 'start' }); },
+  pickTeam(team) { if (mode === 'online') net.send({ t: 'team', team }); },
+  voice: {
+    state: () => ({ mode: voice.mode, volume: voice.volume, supported: Voice.supported, error: voice.error, on: voice.micOn }),
+    setMode(m: VoiceMode) { voice.setMode(m); syncVoicePeers(); },
+    setVolume(v: number) { voice.setVolume(v); },
+    test: async () => voice.ensureMic(),
+  },
   hostStop() { if (isHost()) net.send({ t: 'stop' }); },
   restartSolo() { startSoloMatch(); resume(); },
   async fetchGames(): Promise<OpenGame[]> { const r = await fetch(`${Net.httpBase()}/api/rooms`, { cache: 'no-store' }); return r.ok ? r.json() : []; },
@@ -599,8 +742,8 @@ if (roomCode) {
     enterOnline(roomCode, nm.toUpperCase().slice(0, 14), create); }
   else { try { localStorage.setItem('mq-room', roomCode); } catch { /* ignore */ } menu.afterWelcome = 'join'; menu.show('welcome'); }
 } else if (qs.get('mode') === 'solo') {
-  mode = 'solo'; menu.sessionActive = true;
-  setBots(BOT_ROSTER.slice(0, Math.max(0, Math.min(7, cfg.bots))).map(d => ({ ...d })), cfg.skill);
+  mode = 'solo'; menu.sessionActive = true; soloTeam = cfg.mode === 'tdm' ? 1 : 0;
+  setBots(soloBotDefs(cfg), cfg.skill); if (soloTeam) { armTeam = soloTeam; vm.setTeam(soloTeam); }
   startSoloMatch(); menu.show('pause');
 } else menu.show(menu.needsName ? 'welcome' : 'title');
 
@@ -610,7 +753,7 @@ function die(why: string) {
   if (net.online) net.send({ t: 'dead', by: by && by !== 'SELF' ? Number(by) || 0 : 0, w: weapon });
   else {
     feed(by === 'SELF' || !by ? '' : nameOf(by), weapon, myName, false, true, by === 'SELF' || !by);
-    if (mode === 'solo' && matchState === 'playing') { score('me').deaths++; if (by && by !== 'SELF') score(by).frags++; checkSoloEnd(); }
+    if (mode === 'solo') soloKill(by === 'SELF' || !by ? '' : by, 'me');
   }
   killer.who = ''; sfx.died(); refreshFrags();
   say(why === 'EXPLODED' ? 'YOU BLEW UP' : why === 'FELL' ? 'YOU FELL' : 'YOU DIED'); player.respawn(); yaw = player.yaw; pitch = 0;
@@ -794,7 +937,7 @@ function frame(now: number) {
     if (Math.abs(gap - crossGap) > 0.25) { crossGap += (gap - crossGap) * Math.min(1, bdt * 18); crossEl.style.setProperty('--g', `${crossGap.toFixed(1)}px`); }
     crossEl.classList.toggle('dry', !loadout.canFire(vm.current));
     net.sendState(bdt, { p: [player.x, player.y, player.z], yaw, pitch, w: vm.current, hp: player.health, dead: false });
-    netTick(bdt); matchTick(bdt); if (!frozen) boosterTick(bdt); }
+    netTick(bdt); matchTick(bdt); ctfTick(now / 1000); if (!frozen) boosterTick(bdt); }
   combat.setViewHeight(renderer.domElement.height);
   if (!(window as any).__freeze && !frozen) combat.update(Math.min(0.05, frameMs / 1000));
   stars.update(camera, renderer.getPixelRatio());
@@ -811,4 +954,4 @@ function frame(now: number) {
 requestAnimationFrame(frame);
 
 // dev/test hook
-(window as any).__game = { bots, net, remotes, menu, stars, scene, grantBooster, boost, liftSys, lifts: __lifts, level: { pads: levelPads, teleporters: levelTeleporters, boxes, pickups: levelPickups, spawns: levelSpawns }, get mode() { return mode; }, get matchState() { return matchState; }, scores: () => board(), doFire, player, camera, vm, loadout, combat, pickupSys, targets, say, die, renderer, world, Q, get scale() { return renderScale; }, setLook: (y: number, p: number) => { yaw = y; pitch = p; }, PM };
+(window as any).__game = { bots, net, remotes, menu, stars, scene, voice, get ts() { return ts; }, myTeam, flagSt: () => flagSt, teamOfOwner, soloKill, grantBooster, boost, liftSys, lifts: __lifts, level: { pads: levelPads, teleporters: levelTeleporters, boxes, pickups: levelPickups, spawns: levelSpawns }, get mode() { return mode; }, get matchState() { return matchState; }, scores: () => board(), doFire, player, camera, vm, loadout, combat, pickupSys, targets, say, die, renderer, world, Q, get scale() { return renderScale; }, setLook: (y: number, p: number) => { yaw = y; pitch = p; }, PM };

@@ -89,19 +89,25 @@ export interface NetEvents {
   welcome(id: number, info: RoomInfo): void;
   join(p: PlayerInfo, host: number): void; leave(id: number): void;
   room(kind: 'cfg' | 'start' | 'lobby', info: RoomInfo): void;
-  end(board: PlayerInfo[], winner: number, why: string, next: number): void;
+  end(board: PlayerInfo[], winner: number, why: string, next: number, team?: number, ts?: { 1: number; 2: number }): void;
+  flags(flags: { 1: FlagState; 2: FlagState }, ts: { 1: number; 2: number }, ev: any): void;
+  chat(from: number, to: string, k: string, txt: string): void;
+  rtc(from: number, d: any): void;
+  talk(id: number, on: boolean): void;
   host(id: number): void;
   bots(list: { id: number; p: number[]; yaw: number; w: WeaponId; hp: number; dead: boolean }[]): void;
   bothit(from: number, to: number, dmg: number, dir: number[], kind: string): void;
   renamed(id: number, name: string, board: PlayerInfo[]): void;
   state(id: number, m: any): void; fire(id: number, m: any): void;
   hit(from: number, dmg: number, dir: number[], kind: string): void;
-  killed(id: number, by: number, board: PlayerInfo[], weapon?: string): void;
+  killed(id: number, by: number, board: PlayerInfo[], weapon?: string, ts?: { 1: number; 2: number }, cap?: boolean): void;
   status(s: 'connecting' | 'online' | 'offline' | 'full'): void;
 }
 
 export class Net {
   ws: WebSocket | null = null; id = 0; online = false; private acc = 0;
+  /** round-trip time to the server in ms (0 until the first reply) */
+  ping = 0; private pingTimer = 0;
   constructor(private ev: NetEvents) {}
   static url(room: string, name: string, map = 'boreal', cfg?: MatchCfg): string {
     const override = new URLSearchParams(location.search).get('server');
@@ -118,8 +124,8 @@ export class Net {
   connect(room: string, name: string, map = 'boreal', cfg?: MatchCfg) {
     this.ev.status('connecting');
     const ws = new WebSocket(Net.url(room, name, map, cfg)); this.ws = ws;
-    ws.onopen = () => { this.online = true; };
-    ws.onclose = () => { if (this.online) this.ev.status('offline'); this.online = false; };
+    ws.onopen = () => { this.online = true; clearInterval(this.pingTimer); this.pingTimer = window.setInterval(() => this.send({ t: 'ping', c: performance.now() }), 2000); };
+    ws.onclose = () => { clearInterval(this.pingTimer); if (this.online) this.ev.status('offline'); this.online = false; };
     ws.onerror = () => { if (!this.online) this.ev.status('offline'); };
     ws.onmessage = e => {
       let m: any; try { m = JSON.parse(e.data); } catch { return; }
@@ -128,7 +134,12 @@ export class Net {
         case 'full': this.ev.status('full'); break;
         case 'join': this.ev.join(m.player, m.host); break;
         case 'cfg': case 'start': case 'lobby': this.ev.room(m.t, m); break;
-        case 'end': this.ev.end(m.board, m.winner, m.why, m.next); break;
+        case 'end': this.ev.end(m.board, m.winner, m.why, m.next, m.team, m.ts); break;
+        case 'flags': this.ev.flags(m.flags, m.ts, m.ev); break;
+        case 'chat': this.ev.chat(m.from, m.to, m.k || '', m.txt || ''); break;
+        case 'rtc': this.ev.rtc(m.from, m.d); break;
+        case 'talk': this.ev.talk(m.id, !!m.on); break;
+        case 'pong': this.ping = Math.round(performance.now() - m.c); break;
         case 'host': this.ev.host(m.host); break;
         case 'bots': this.ev.bots(m.l); break;
         case 'bothit': this.ev.bothit(m.from, m.to, m.dmg, m.dir, m.kind); break;
@@ -137,7 +148,7 @@ export class Net {
         case 'state': this.ev.state(m.id, m); break;
         case 'fire': this.ev.fire(m.id, m); break;
         case 'hit': this.ev.hit(m.from, m.dmg, m.dir, m.kind); break;
-        case 'killed': this.ev.killed(m.id, m.by, m.board, typeof m.w === 'string' ? m.w : ''); break;
+        case 'killed': this.ev.killed(m.id, m.by, m.board, typeof m.w === 'string' ? m.w : '', m.ts, !!m.cap); break;
       }
     };
   }

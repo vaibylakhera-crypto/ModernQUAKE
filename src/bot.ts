@@ -4,6 +4,7 @@ import { animate, holdWeapon, AnimState } from './anim';
 import { Target, rayWorld } from './combat';
 import { WeaponId } from './weapons';
 import { boxes, botZones, BotZone } from './level';
+import { TEAMS } from './teams';
 
 // Arena bot: runs and strafes on the central platform, tracks the player, fires visible projectiles, dies and respawns.
 
@@ -51,6 +52,8 @@ export class Bot implements Target {
   /** network id when the bot lives in an online room (0 offline) */
   netId = 0;
   skill = 1;
+  /** 0 = free-for-all, 1 = RED, 2 = BLUE */
+  team = 0;
   private lastBy = ''; private lastW = '';
   private zone: BotZone;
 
@@ -161,7 +164,7 @@ export class Bot implements Target {
   }
 }
 
-export interface BotDef { name: string; weapon: WeaponId; color: number; netId?: number }
+export interface BotDef { name: string; weapon: WeaponId; color: number; netId?: number; team?: number }
 /** the solo roster (online rooms get theirs from the server, same names) */
 export const BOT_ROSTER: BotDef[] = [
   { name: 'RAZOR', weapon: 'plasma', color: 0xff4a3a }, { name: 'VEX', weapon: 'plasma', color: 0xff2fa0 },
@@ -172,8 +175,9 @@ export const BOT_ROSTER: BotDef[] = [
 const FEMALE = new Set(['VEX', 'NYX', 'ZOLA', 'HEX']);
 
 export async function spawnBot(parent: THREE.Object3D, ctx: BotCtx, d: BotDef, skill: number): Promise<Bot> {
-  const rig = await buildFighter(FEMALE.has(d.name) ? 'female' : 'male', d.color); parent.add(rig.root);
-  const b = new Bot(d.name, rig, d.weapon, ctx, d.color); b.netId = d.netId ?? 0; b.skill = Math.max(0, Math.min(2, skill)); return b;
+  const t = TEAMS[d.team ?? 0];
+  const rig = await buildFighter(FEMALE.has(d.name) ? 'female' : 'male', t ? t.hex : d.color, t ? t.armor : undefined, t ? t.suit : undefined); parent.add(rig.root);
+  const b = new Bot(d.name, rig, d.weapon, ctx, t ? t.hex : d.color); b.netId = d.netId ?? 0; b.skill = Math.max(0, Math.min(2, skill)); b.team = d.team ?? 0; return b;
 }
 export async function spawnBots(parent: THREE.Object3D, ctx: BotCtx, defs: BotDef[], skill = 1): Promise<Bot[]> {
   return Promise.all(defs.map(d => spawnBot(parent, ctx, d, skill)));
