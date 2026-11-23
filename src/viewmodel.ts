@@ -215,13 +215,16 @@ export class Viewmodel {
     const idle = 1 - moving;
     const bx = Math.cos(this.bobT * 0.5) * 0.011 * moving + Math.sin(this.breath * 1.3) * 0.0015 * idle,
           by = Math.abs(Math.sin(this.bobT * 0.5)) * 0.014 * moving + Math.sin(this.breath * 1.7) * 0.0022 * idle - this.land * 0.03;
-    this.swayX += (-o.lookDX * 0.0016 - this.swayX) * Math.min(1, dt * 10);
-    this.swayY += (o.lookDY * 0.0016 - this.swayY) * Math.min(1, dt * 10);
+    // look sway, clamped so a fast flick / swipe can't swing the gun out of the hands
+    const cl = (v: number) => Math.max(-0.07, Math.min(0.07, v));
+    this.swayX += (cl(-o.lookDX * 0.0016) - this.swayX) * Math.min(1, dt * 10);
+    this.swayY += (cl(o.lookDY * 0.0016) - this.swayY) * Math.min(1, dt * 10);
     const lower = (1 - this.raise) * (1 - this.raise);
     const h = m.holder;
     const sw = Math.sin(this.swing * Math.PI);   // blade slash arc
-    h.position.set(bx + this.swayX * 0.5 - sw * 0.12, by - lower * 0.35 + this.swayY * 0.5 - sw * 0.04, this.kz * 0.05 - sw * 0.12);
-    h.rotation.set(-this.kz * 0.07 + this.land * 0.05 + this.swayY - lower * 0.9 + sw * 0.4, this.swayX + sw * 0.7, -this.swayX * 0.6 + Math.sin(this.bobT * 0.5) * 0.004 * moving - sw * 0.9);
+    // weapon switch: dip and tilt the gun down (smaller than before, so the hands stay on it)
+    h.position.set(bx + this.swayX * 0.5 - sw * 0.12, by - lower * 0.2 + this.swayY * 0.5 - sw * 0.04, this.kz * 0.05 - sw * 0.12 + lower * 0.05);
+    h.rotation.set(-this.kz * 0.07 + this.land * 0.05 + this.swayY - lower * 0.55 + sw * 0.4, this.swayX + sw * 0.7, -this.swayX * 0.6 + Math.sin(this.bobT * 0.5) * 0.004 * moving - sw * 0.9);
     if (this.fp.ready) { h.updateMatrixWorld(true); this.fp.update(h, this.current); }
   }
 }
