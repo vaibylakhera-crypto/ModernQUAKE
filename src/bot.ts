@@ -7,12 +7,30 @@ import { boxes } from './level';
 
 // Arena bot: runs and strafes on the central platform, tracks the player, fires visible projectiles, dies and respawns.
 
+export interface BotTarget { pos: THREE.Vector3; eye: THREE.Vector3; vel: THREE.Vector3 }
 export interface BotCtx {
-  player: { pos: THREE.Vector3; eye: THREE.Vector3; vel: THREE.Vector3 };
-  fire(id: WeaponId, origin: THREE.Vector3, dir: THREE.Vector3, dmg: number, speedScale: number, owner: string): void;
-  onKilled(b: Bot): void;
+  player: BotTarget;
+  /** multiplayer host: pick who this bot hunts (nearest human). Defaults to `player` */
+  target?(b: Bot): BotTarget;
+  fire(id: WeaponId, origin: THREE.Vector3, dir: THREE.Vector3, dmg: number, speedScale: number, owner: string, bot: Bot): void;
+  /** by: who landed the killing blow ('' = local player in solo, otherwise a network id as text) */
+  onKilled(b: Bot, by: string, weapon: string): void;
   onHit(b: Bot, dmg: number): void;
 }
+/** 0 easy · 1 normal · 2 hard */
+const SKILL = {
+  aim:  [2.6, 1.4, 0.55],     // random aim error (m at the target)
+  lead: [0.35, 0.75, 0.95],   // how well they lead a moving target
+  cool: [1.7, 1.0, 0.62],     // fire interval multiplier
+  turn: [3.5, 7, 11],         // how fast they turn to face you
+  range: [26, 38, 48],
+};
+/** per-weapon bot fire pattern */
+const BOT_GUN: Partial<Record<WeaponId, { dmg: number; cd: number; jitter: number; speed: number }>> = {
+  plasma: { dmg: 11, cd: 0.42, jitter: 0.3, speed: 28 },
+  rocket: { dmg: 70, cd: 1.6, jitter: 0.6, speed: 20 },
+  nailer: { dmg: 7, cd: 0.13, jitter: 0.06, speed: 40 },
+};
 
 const ARENA = 13.2;
 const SPAWNS: [number, number][] = [[-12, -12], [12, -12], [-12, 12], [12, 12], [0, -13], [0, 13], [-13, 0], [13, 0]];
@@ -30,13 +48,17 @@ export class Bot implements Target {
   health = 100; yaw = 0; private dest = new THREE.Vector2(); private destT = 0; private cooldown = 1; private deadT = 0; private pain = 0; private fireK = 0; private t = Math.random() * 10;
   private weapon: WeaponId; private muzzle!: THREE.Object3D; private fall = 0; private bar: THREE.Mesh; private rig!: Dressed;
   frags = 0;
+  /** network id when the bot lives in an online room (0 offline) */
+  netId = 0;
+  skill = 1;
+  private lastBy = ''; private lastW = '';
 
   constructor(public name: string, private rigP: Dressed, weapon: WeaponId, private ctx: BotCtx, private color: number) {
     this.id = name; this.weapon = weapon; this.rig = rigP;
     animate(rigP, { t: 0, speed: 0, dead: 0, look: 0, pain: 0, fire: 0 });   // pose FIRST so the gun is aligned to the posed hand
     const g = holdWeapon(rigP, weapon); this.muzzle = (g as any).userData.muzzle;
     const label = nameSprite(name, color); label.position.set(0, 2.25, 0); rigP.root.add(label);
-    this.bar = new THREE.Mesh(new THREE.PlaneGeometry(1, 0.07), new THREE.MeshBasicMaterial({ color: 0x3dff7a, depthTest: false, transparent: true })); this.bar.position.set(0, 2.08, 0); this.bar.renderOrder = 10; rigP.root.add(this.bar);
+    this.bar = new THREE.Mesh(new THREE.PlaneGeometry(1, 0.07), new THREE.MeshBasicMaterial({ color: 0x3dff7a, transparent: true })); this.bar.position.set(0, 2.08, 0); this.bar.renderOrder = 10; rigP.root.add(this.bar);
     this.respawn();
   }
   get root() { return this.rig.root; }
@@ -48,11 +70,16 @@ export class Bot implements Target {
     this.root.visible = true; this.apply(0, 0);
   }
 
-  hit(dmg: number, _from: THREE.Vector3, _dir: THREE.Vector3, _kind: string) {
+  /** by: attacker id ('' = local player); weapon: what hit us */
+  hit(dmg: number, _from: THREE.Vector3, _dir: THREE.Vector3, kind: string, by = '', weapon = '') {
     if (!this.alive) return;
+    this.lastBy = by; this.lastW = weapon || (kind === 'splash' ? '' : kind);
     this.health -= dmg; this.pain = 1; this.ctx.onHit(this, dmg);
-    if (this.health <= 0) { this.alive = false; this.deadT = 0; this.ctx.onKilled(this); }
+    if (this.health <= 0) { this.alive = false; this.deadT = 0; this.ctx.onKilled(this, this.lastBy, this.lastW); }
   }
+  /** for network snapshots */
+  get weaponId() { return this.weapon; }
+  get healthPct() { return Math.max(0, this.health); }
 
   private pickDest() {
     const p = this.ctx.player.pos;
@@ -66,7 +93,7 @@ export class Bot implements Target {
 
   update(dt: number) {
     this.t += dt;
-    const P = this.ctx.player;
+    const P = this.ctx.target ? this.ctx.target(this) : this.ctx.player;
     if (!this.alive) {
       this.deadT += dt; this.fall = Math.min(1, this.deadT * 2.2);
       if (this.deadT > 4.5) this.respawn(P.pos);
@@ -91,25 +118,26 @@ export class Bot implements Target {
     }
     // face the player
     const ty = Math.atan2(P.pos.x - this.pos.x, P.pos.z - this.pos.z);
-    let d = ty - this.yaw; d = Math.atan2(Math.sin(d), Math.cos(d)); this.yaw += d * Math.min(1, dt * 7);
+    let d = ty - this.yaw; d = Math.atan2(Math.sin(d), Math.cos(d)); this.yaw += d * Math.min(1, dt * SKILL.turn[this.skill]);
 
     // shooting
     this.cooldown -= dt; this.fireK = Math.max(0, this.fireK - dt * 6); this.pain = Math.max(0, this.pain - dt * 3);
     const eye = new THREE.Vector3(this.pos.x, this.pos.y + 1.5, this.pos.z);
     const to = P.eye.clone().sub(eye); const dist = to.length();
-    if (this.cooldown <= 0 && dist < 38 && Math.abs(d) < 0.5) {
+    if (this.cooldown <= 0 && dist < SKILL.range[this.skill] && Math.abs(d) < 0.5) {
       const dirN = to.clone().normalize();
       const blocked = rayWorld(eye, dirN, dist - 0.5);
       if (!blocked) {
         const rocket = this.weapon === 'rocket';
-        const speed = rocket ? 20 : 28;
-        const lead = P.vel.clone().multiplyScalar((dist / speed) * 0.75);
+        const gun = BOT_GUN[this.weapon] ?? BOT_GUN.plasma!;
+        const lead = P.vel.clone().multiplyScalar((dist / gun.speed) * SKILL.lead[this.skill]);
         const target = (rocket ? P.pos.clone().add(new THREE.Vector3(0, 0.15, 0)) : P.eye.clone()).add(lead);
-        target.add(new THREE.Vector3((Math.random() - .5) * 1.4, (Math.random() - .5) * 0.8, (Math.random() - .5) * 1.4));
+        const e = SKILL.aim[this.skill];
+        target.add(new THREE.Vector3((Math.random() - .5) * e, (Math.random() - .5) * e * 0.6, (Math.random() - .5) * e));
         this.root.updateMatrixWorld(true);
         const o = this.muzzle.getWorldPosition(new THREE.Vector3());
-        this.ctx.fire(this.weapon, o, target.sub(o).normalize(), rocket ? 70 : 11, 0.72, this.name);
-        this.cooldown = rocket ? 1.6 + Math.random() * 0.6 : 0.42 + Math.random() * 0.3; this.fireK = 1;
+        this.ctx.fire(this.weapon, o, target.sub(o).normalize(), gun.dmg, 0.72, this.netId ? String(this.netId) : this.name, this);
+        this.cooldown = (gun.cd + Math.random() * gun.jitter) * SKILL.cool[this.skill]; this.fireK = 1;
       } else this.cooldown = 0.2;
     }
     this.apply(dt, Math.min(1, this.vel.length() / 6.2));
@@ -128,16 +156,22 @@ export class Bot implements Target {
   }
 }
 
-export async function spawnBots(parent: THREE.Object3D, ctx: BotCtx): Promise<Bot[]> {
-  const defs: { name: string; g: 'male' | 'female'; w: WeaponId; c: number }[] = [
-    { name: 'RAZOR', g: 'male', w: 'plasma', c: 0xff4a3a },
-    { name: 'VEX', g: 'female', w: 'plasma', c: 0xff2fa0 },
-    { name: 'KRAIT', g: 'male', w: 'rocket', c: 0xffb02e },
-  ];
-  const bots: Bot[] = [];
-  for (const d of defs) {
-    const rig = await buildFighter(d.g, d.c); parent.add(rig.root);
-    bots.push(new Bot(d.name, rig, d.w, ctx, d.c));
-  }
-  return bots;
+export interface BotDef { name: string; weapon: WeaponId; color: number; netId?: number }
+/** the solo roster (online rooms get theirs from the server, same names) */
+export const BOT_ROSTER: BotDef[] = [
+  { name: 'RAZOR', weapon: 'plasma', color: 0xff4a3a }, { name: 'VEX', weapon: 'plasma', color: 0xff2fa0 },
+  { name: 'KRAIT', weapon: 'rocket', color: 0xffb02e }, { name: 'NYX', weapon: 'nailer', color: 0x7dff6a },
+  { name: 'ONYX', weapon: 'plasma', color: 0xb08cff }, { name: 'HEX', weapon: 'rocket', color: 0x2effd0 },
+  { name: 'MORROW', weapon: 'nailer', color: 0x35d0ff }, { name: 'ZOLA', weapon: 'plasma', color: 0xffffff },
+];
+const FEMALE = new Set(['VEX', 'NYX', 'ZOLA', 'HEX']);
+
+export async function spawnBot(parent: THREE.Object3D, ctx: BotCtx, d: BotDef, skill: number): Promise<Bot> {
+  const rig = await buildFighter(FEMALE.has(d.name) ? 'female' : 'male', d.color); parent.add(rig.root);
+  const b = new Bot(d.name, rig, d.weapon, ctx, d.color); b.netId = d.netId ?? 0; b.skill = Math.max(0, Math.min(2, skill)); return b;
 }
+export async function spawnBots(parent: THREE.Object3D, ctx: BotCtx, defs: BotDef[], skill = 1): Promise<Bot[]> {
+  return Promise.all(defs.map(d => spawnBot(parent, ctx, d, skill)));
+}
+/** remove a bot's model from the scene */
+export function disposeBot(b: Bot) { b.root.removeFromParent(); b.alive = false; }

@@ -30,17 +30,12 @@
   #hp{left:40px;color:#ffd24a}
   #ar{left:200px;color:#ff9a3c}
   #speed{right:40px;color:#7ffff0}
-  #medal{position:absolute;top:18px;left:50%;transform:translateX(-50%);font-size:14px;letter-spacing:4px;opacity:.75}
+  #medal{position:absolute;bottom:4px;right:8px;font-size:10px;letter-spacing:2px;opacity:.45;display:none}
+  body.fps #medal{display:block}
   #msg{position:absolute;top:38%;left:50%;transform:translateX(-50%);font-size:22px;letter-spacing:3px;color:#fff;opacity:0;transition:opacity .4s}
   #net{position:absolute;top:18px;right:24px;text-align:right;font-size:14px;letter-spacing:2px;line-height:1.5;color:#bfefff}
   #net b{color:#ffd24a} #net .me{color:#7ffff0}
-  #online{margin-top:18px;display:flex;gap:8px;align-items:center;cursor:default}
-  #online input{background:rgba(10,20,40,.7);border:1px solid #5ee7ff55;color:#e9ffff;padding:8px 10px;border-radius:6px;font:600 15px inherit;letter-spacing:2px;text-transform:uppercase;width:130px;text-align:center}
-  #pmap{background:rgba(10,20,40,.7);border:1px solid #5ee7ff55;color:#e9ffff;padding:8px 10px;border-radius:6px;font:600 14px inherit;letter-spacing:2px}
-  #online button{background:linear-gradient(90deg,#3ee8b0,#5ea7ff);color:#04101c;border:0;border-radius:6px;padding:9px 16px;font:700 14px inherit;letter-spacing:2px;cursor:pointer}
   #start{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(0,0,10,.55);cursor:pointer;z-index:5;backdrop-filter:blur(3px)}
-  #start h1{font-size:72px;letter-spacing:12px;margin:0;background:linear-gradient(90deg,#6bffb8,#5ee7ff,#c27bff);-webkit-background-clip:text;color:transparent}
-  #start p{opacity:.8;letter-spacing:2px;margin:6px 0}
   #frags{position:absolute;top:18px;left:24px;font-size:20px;font-weight:700;letter-spacing:3px;color:#ffd24a}
   /* hit marker: 4 diagonal ticks just outside the crosshair */
   #hit{--hs:1;position:absolute;left:50%;top:50%;width:0;height:0;opacity:0;transform:rotate(45deg) scale(var(--hs))}
@@ -71,7 +66,7 @@
   .wslot i{display:block;font-style:normal;font-size:12px;letter-spacing:1px;min-height:14px;color:#cfe}
   .wslot.on{opacity:1 !important;transform:translateY(-6px);border-color:var(--c);box-shadow:0 0 14px var(--c)}
   kbd{border:1px solid #7ffff055;border-radius:4px;padding:1px 7px;margin:0 2px;background:#0008}
-  #loading{margin-top:12px;width:260px;text-align:center;font-size:12px;letter-spacing:3px;opacity:.85;transition:opacity .5s}
+  #loading{position:absolute;bottom:calc(14px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);width:260px;text-align:center;font-size:12px;letter-spacing:3px;opacity:.85;transition:opacity .5s}
   #loading div{height:4px;background:#ffffff1a;border-radius:2px;overflow:hidden;margin-bottom:6px}
   #loading i{display:block;height:100%;width:0;background:linear-gradient(90deg,#6bffb8,#5ee7ff);transition:width .2s}
   #loading.done{opacity:0}
@@ -112,14 +107,6 @@
   body.touch .wslot i{font-size:10px;min-height:11px}
   body.touch .wslot:not(.own){display:none}
   body.touch #msg{font-size:17px;top:30%}
-  body.touch #start{overflow-y:auto;justify-content:flex-start;padding:calc(16px + env(safe-area-inset-top)) 16px 16px;box-sizing:border-box}
-  body.touch #start h1{font-size:clamp(30px,8vw,56px);letter-spacing:6px;margin-top:auto}
-  body.touch #start>:last-child{margin-bottom:auto}
-  body.touch #start p{font-size:14px;text-align:center}
-  body.touch #online{flex-wrap:wrap;justify-content:center;margin-top:10px}
-  body.touch #online input{width:120px;font-size:16px}
-  #sensrow{align-items:center;gap:10px;margin-top:10px;font-size:13px;letter-spacing:2px}
-  body.touch #sensrow.tonly{display:flex}
   #rotate{display:none;position:fixed;inset:0;z-index:20;background:#000;color:#dff;align-items:center;justify-content:center;flex-direction:column;text-align:center;font-size:20px;letter-spacing:3px;padding:24px}
   #rotate b{font-size:56px;display:block;margin-bottom:12px;animation:rot 1.6s ease-in-out infinite}
   @keyframes rot{0%,30%{transform:rotate(0)}60%,100%{transform:rotate(90deg)}}
@@ -130,7 +117,8 @@
 <div id="hud">
   <div id="cross"><i></i><i></i><i></i><i></i><b></b></div>
   <div id="net"></div>
-  <div id="medal">FREE-FOR-ALL  ·  PRACTICE</div>
+  <div id="medal"></div>
+  <div id="matchbar"></div>
   <div id="msg"></div>
   <div id="frags">FRAGS 0</div>
   <div id="hit"><i></i><i></i><i></i><i></i></div>
@@ -141,16 +129,7 @@
   <div class="stat" id="speed">0<small>UNITS / SEC</small></div>
 </div>
 <div id="start">
-  <h1>MODERNQUAKE</h1>
-  <p class="monly">CLICK TO PLAY &nbsp;·&nbsp; ESC or ENTER to resume</p>
-  <p class="monly"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move &nbsp; <kbd>SPACE</kbd> jump (tap each hop) &nbsp; <kbd>C</kbd> crouch &nbsp; <kbd>R</kbd> respawn</p>
-  <p class="tonly"><b>TAP ANYWHERE TO PLAY</b></p>
-  <p class="tonly">Left thumb: move &nbsp;·&nbsp; Right thumb: drag to aim &nbsp;·&nbsp; Hold FIRE and drag to shoot while aiming</p>
-  <p>Strafe + turn in the air to gain speed. Step on the glowing pads.</p>
-  <div id="online" style="margin-top:14px"><select id="pmap"><option value="boreal">MAP: AURORA STATION</option><option value="void">MAP: DEEP VOID</option></select></div>
-  <div id="online"><input id="pname" maxlength="14" placeholder="NAME"><input id="proom" maxlength="12" placeholder="ROOM CODE"><button id="pgo">PLAY ONLINE</button></div>
-  <div id="sensrow" class="tonly">AIM SPEED <input id="psens" type="range" min="0.4" max="2.5" step="0.1" value="1"></div>
-  <p id="netstat" style="font-size:13px;opacity:.7"></p>
+  <div id="menu"></div>
   <div id="loading"><div><i id="loadbar"></i></div><span id="loadtxt">LOADING…</span></div>
 </div>
 <div id="rotate"><b>📱</b>TURN YOUR PHONE SIDEWAYS</div>

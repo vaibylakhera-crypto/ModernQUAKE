@@ -179,6 +179,10 @@ export interface CombatHooks {
   landed?(tg: Target, dmg: number, point: THREE.Vector3, weapon: WeaponId, killed: boolean): void;
   /** an explosion happened at pos (sound) */
   boom?(pos: THREE.Vector3, size: number): void;
+  /** online host: bots that other players' projectiles can hit (owner = shooter id). Empty for bot-owned shots */
+  foreignTargets?(owner: string): Target[];
+  /** a foreign projectile hit one of those targets */
+  foreignHit?(tg: Target, dmg: number, owner: string, weapon: WeaponId): void;
 }
 
 export class Combat {
@@ -188,7 +192,7 @@ export class Combat {
   shake = 0;
   private bolts: THREE.Object3D[] = []; private rocketProto!: THREE.Group;
 
-  constructor(private scene: THREE.Scene, private hooks: CombatHooks) {
+  constructor(private scene: THREE.Scene, public hooks: CombatHooks) {
     this.particles = new Particles(scene); this.tracers = new Tracers(scene);
     for (let i = 0; i < 10; i++) {
       const core = new THREE.Mesh(unitCyl, new THREE.MeshBasicMaterial({ color: 0xe8e0ff, fog: false, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
@@ -389,7 +393,10 @@ export class Combat {
       let hitT = dist, kindHit: 'none' | 'world' | 'target' | 'player' = 'none'; let n: THREE.Vector3 | null = null, tgHit: Target | null = null;
       const w = rayWorld(pr.pos, dir, dist); if (w) { hitT = w.t; n = w.n; kindHit = 'world'; }
       if (pr.fromPlayer) { for (const tg of this.hooks.targets()) { if (!tg.alive) continue; const t = rayTarget(pr.pos, dir, hitT, tg); if (t !== null && t <= hitT) { hitT = t; kindHit = 'target'; tgHit = tg; n = dir.clone().negate(); } } }
-      else { const b = this.hooks.playerBody(); const t = rayTarget(pr.pos, dir, hitT, { pos: b.pos, radius: b.radius, height: b.height } as unknown as Target); if (t !== null && t <= hitT) { hitT = t; kindHit = 'player'; n = dir.clone().negate(); } }
+      else {
+        const b = this.hooks.playerBody(); const t = rayTarget(pr.pos, dir, hitT, { pos: b.pos, radius: b.radius, height: b.height } as unknown as Target); if (t !== null && t <= hitT) { hitT = t; kindHit = 'player'; n = dir.clone().negate(); }
+        for (const tg of this.hooks.foreignTargets?.(pr.owner) ?? []) { if (!tg.alive) continue; const t2 = rayTarget(pr.pos, dir, hitT, tg); if (t2 !== null && t2 <= hitT) { hitT = t2; kindHit = 'target'; tgHit = tg; n = dir.clone().negate(); } }
+      }
       const st = WEAPON_DEFS[pr.kind].stats;
       if (kindHit === 'none') {
         pr.pos.add(step); pr.obj.position.copy(pr.pos);
@@ -406,10 +413,10 @@ export class Combat {
       }
       const hp = pr.pos.clone().addScaledVector(dir, hitT);
       this.scene.remove(pr.obj); this.projs.splice(i, 1);
-      if (tgHit) { this.strike(tgHit, pr.dmg, pr.pos, dir, pr.kind, pr.kind, hp); this.blood(hp, dir); }
+      if (tgHit) { if (pr.fromPlayer) this.strike(tgHit, pr.dmg, pr.pos, dir, pr.kind, pr.kind, hp); else this.hooks.foreignHit?.(tgHit, pr.dmg, pr.owner, pr.kind); this.blood(hp, dir); }
       if (kindHit === 'player') this.hooks.hurt(pr.dmg, dir, pr.kind, pr.owner);
-      if (pr.kind === 'rocket') { const e = hp.clone().addScaledVector(n!, 0.15); this.explosion(e, st.splash!); this.hooks.explode(e, st.splash!, pr.dmg, st.knock!, pr.fromPlayer, pr.kind, pr.owner); if (pr.fromPlayer) this.splashTargets(e, st.splash!, pr.dmg, tgHit, pr.kind); }
-      else if (pr.kind === 'plasma') { const e = hp.clone().addScaledVector(n!, 0.1); this.plasmaSplash(e, n!); this.hooks.explode(e, st.splash!, pr.dmg * 0.5, st.knock!, pr.fromPlayer, pr.kind, pr.owner); if (pr.fromPlayer) this.splashTargets(e, st.splash!, pr.dmg * 0.5, tgHit, pr.kind); }
+      if (pr.kind === 'rocket') { const e = hp.clone().addScaledVector(n!, 0.15); this.explosion(e, st.splash!); this.hooks.explode(e, st.splash!, pr.dmg, st.knock!, pr.fromPlayer, pr.kind, pr.owner); if (pr.fromPlayer) this.splashTargets(e, st.splash!, pr.dmg, tgHit, pr.kind); else this.foreignSplash(e, st.splash!, pr.dmg, tgHit, pr.owner, pr.kind); }
+      else if (pr.kind === 'plasma') { const e = hp.clone().addScaledVector(n!, 0.1); this.plasmaSplash(e, n!); this.hooks.explode(e, st.splash!, pr.dmg * 0.5, st.knock!, pr.fromPlayer, pr.kind, pr.owner); if (pr.fromPlayer) this.splashTargets(e, st.splash!, pr.dmg * 0.5, tgHit, pr.kind); else this.foreignSplash(e, st.splash!, pr.dmg * 0.5, tgHit, pr.owner, pr.kind); }
       else if (!tgHit) this.sparks(hp, n!, 0xffc02d, 5);
     }
     // arc beam: jagged segments re-rolled every frame while active
@@ -440,6 +447,14 @@ export class Combat {
     }
     this.particles.update(dt); this.tracers.update(dt);
     this.shake = Math.max(0, this.shake - dt * 3);
+  }
+
+  private foreignSplash(p: THREE.Vector3, radius: number, dmg: number, skip: Target | null, owner: string, weapon: WeaponId) {
+    for (const tg of this.hooks.foreignTargets?.(owner) ?? []) {
+      if (!tg.alive || tg === skip) continue;
+      const c = tg.pos.clone(); c.y += tg.height * 0.5; const d = c.distanceTo(p);
+      if (d < radius) this.hooks.foreignHit?.(tg, dmg * (1 - d / radius), owner, weapon);
+    }
   }
 
   private splashTargets(p: THREE.Vector3, radius: number, dmg: number, skip: Target | null, weapon: WeaponId) {

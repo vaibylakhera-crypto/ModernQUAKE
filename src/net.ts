@@ -6,7 +6,11 @@ import { WeaponId } from './weapons';
 
 // Online play: a tiny room server relays state. Each client simulates itself; shooters report hitscan hits, victims apply projectile damage.
 
-export interface PlayerInfo { id: number; name: string; color: number; frags: number; deaths: number }
+export interface PlayerInfo { id: number; name: string; color: number; frags: number; deaths: number; bot?: boolean; weapon?: WeaponId }
+/** match settings chosen by the host (or for a solo game) */
+export interface MatchCfg { map: string; bots: number; skill: number; frag: number; time: number; open?: boolean }
+/** everything the server says about a room */
+export interface RoomInfo { room: string; host: number; cfg: MatchCfg; state: 'lobby' | 'playing' | 'ended'; endsAt: number; now: number; players: PlayerInfo[] }
 const PROJECTILE_KINDS = new Set(['nailer', 'rocket', 'plasma', 'splash']);   // victim applies these locally from the replicated projectile
 
 function nameSprite(text: string, color: number): THREE.Sprite {
@@ -24,6 +28,7 @@ export class RemotePlayer implements Target {
   hp = 100;
   constructor(public info: PlayerInfo, private parent: THREE.Object3D, private sendHit: (to: number, dmg: number, dir: THREE.Vector3, kind: string) => void) {
     this.id = 'p' + info.id;
+    if (info.weapon) this.weapon = info.weapon;
     buildFighter(info.id % 2 ? 'male' : 'female', info.color).then(rig => {
       this.rig = rig; parent.add(rig.root);
       const label = nameSprite(info.name, info.color); label.position.set(0, 2.25, 0); rig.root.add(label);
@@ -60,8 +65,13 @@ export class RemotePlayer implements Target {
 }
 
 export interface NetEvents {
-  welcome(id: number, room: string, players: PlayerInfo[], map?: string): void;
-  join(p: PlayerInfo): void; leave(id: number): void;
+  welcome(id: number, info: RoomInfo): void;
+  join(p: PlayerInfo, host: number): void; leave(id: number): void;
+  room(kind: 'cfg' | 'start' | 'lobby', info: RoomInfo): void;
+  end(board: PlayerInfo[], winner: number, why: string, next: number): void;
+  host(id: number): void;
+  bots(list: { id: number; p: number[]; yaw: number; w: WeaponId; hp: number; dead: boolean }[]): void;
+  bothit(from: number, to: number, dmg: number, dir: number[], kind: string): void;
   state(id: number, m: any): void; fire(id: number, m: any): void;
   hit(from: number, dmg: number, dir: number[], kind: string): void;
   killed(id: number, by: number, board: PlayerInfo[], weapon?: string): void;
@@ -71,24 +81,35 @@ export interface NetEvents {
 export class Net {
   ws: WebSocket | null = null; id = 0; online = false; private acc = 0;
   constructor(private ev: NetEvents) {}
-  static url(room: string, name: string, map = 'boreal'): string {
+  static url(room: string, name: string, map = 'boreal', cfg?: MatchCfg): string {
     const override = new URLSearchParams(location.search).get('server');
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     const base = override ? (/^wss?:/.test(override) ? override : `${proto}://${override}`) : `${proto}://${location.port === '5173' ? `${location.hostname}:8080` : location.host}`;
-    return `${base}/ws?room=${encodeURIComponent(room)}&name=${encodeURIComponent(name)}&map=${map}`;
+    return `${base}/ws?room=${encodeURIComponent(room)}&name=${encodeURIComponent(name)}&map=${map}${cfg ? `&cfg=${encodeURIComponent(JSON.stringify(cfg))}` : ''}`;
   }
-  connect(room: string, name: string, map = 'boreal') {
+  /** the server base URL for http calls (open games list) */
+  static httpBase(): string {
+    const override = new URLSearchParams(location.search).get('server');
+    if (override) return /^https?:/.test(override) ? override : `${location.protocol}//${override.replace(/^wss?:\/\//, '')}`;
+    return location.port === '5173' ? `${location.protocol}//${location.hostname}:8080` : '';
+  }
+  connect(room: string, name: string, map = 'boreal', cfg?: MatchCfg) {
     this.ev.status('connecting');
-    const ws = new WebSocket(Net.url(room, name, map)); this.ws = ws;
+    const ws = new WebSocket(Net.url(room, name, map, cfg)); this.ws = ws;
     ws.onopen = () => { this.online = true; };
     ws.onclose = () => { if (this.online) this.ev.status('offline'); this.online = false; };
     ws.onerror = () => { if (!this.online) this.ev.status('offline'); };
     ws.onmessage = e => {
       let m: any; try { m = JSON.parse(e.data); } catch { return; }
       switch (m.t) {
-        case 'welcome': this.id = m.id; this.ev.status('online'); this.ev.welcome(m.id, m.room, m.players, m.map); break;
+        case 'welcome': this.id = m.id; this.ev.status('online'); this.ev.welcome(m.id, m); break;
         case 'full': this.ev.status('full'); break;
-        case 'join': this.ev.join(m.player); break;
+        case 'join': this.ev.join(m.player, m.host); break;
+        case 'cfg': case 'start': case 'lobby': this.ev.room(m.t, m); break;
+        case 'end': this.ev.end(m.board, m.winner, m.why, m.next); break;
+        case 'host': this.ev.host(m.host); break;
+        case 'bots': this.ev.bots(m.l); break;
+        case 'bothit': this.ev.bothit(m.from, m.to, m.dmg, m.dir, m.kind); break;
         case 'leave': this.ev.leave(m.id); break;
         case 'state': this.ev.state(m.id, m); break;
         case 'fire': this.ev.fire(m.id, m); break;

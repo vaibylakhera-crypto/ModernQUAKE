@@ -11,8 +11,12 @@ The room server (`server/server.mjs`) serves the built game AND the WebSocket re
     npm install
     npm start            # builds, then serves on http://localhost:8080 (PORT env var to change)
 
-Open the page, type a name + room code, press PLAY ONLINE. Anyone who opens the same URL and enters the
-same room code joins you (max 8 per room). `?room=CODE&name=YOU` in the URL does the same.
+Open the page and use the menu:
+- **HOST GAME** - pick map, bots (0-7), bot skill, frag limit, time limit and visibility. You get a room code plus
+  COPY INVITE LINK / SHARE. The host's device runs the bots; if the host leaves, another player takes them over.
+- **JOIN GAME** - type the code, or tap a game in OPEN GAMES (listed rooms, from `GET /api/rooms`).
+- **Lobby** - warm up until the host presses START MATCH; results show when a limit is hit, then back to warmup.
+- Invite links look like `https://your-host/?room=CODE`. Max 8 players per room, plus bots.
 
 ### Let friends join
 - **Quick (your PC):** `cloudflared tunnel --url http://localhost:8080` and send the printed https link.
