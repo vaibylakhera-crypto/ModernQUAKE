@@ -241,8 +241,9 @@ const CRYPT: Omit<MapDef, 'id' | 'name' | 'desc'> = {
     block(-31, -1.5, -15, 31, 12, -14), block(-31, -1.5, 14, 31, 12, 15), block(-31, -1.5, -14, -30, 12, 14), block(30, -1.5, -14, 31, 12, 14),
     block(-31, 12, -15, 31, 13, 15),                                                    // ceiling
     light(-26, -1, -22, 1, 12), light(-2, -1, 2, 1, 12), light(22, -1, 26, 1, 12), light(-16, -8, -12, -6, 12), light(12, 6, 16, 8, 12),
-    block(-10.5, -1.5, -14, -9.5, 6, -2.5), block(-10.5, -1.5, 2.5, -9.5, 6, 14),
-    block(9.5, -1.5, -14, 10.5, 6, -2.5), block(9.5, -1.5, 2.5, 10.5, 6, 14),
+    // doorway walls: under the catwalks they stop at the catwalk's underside (no coplanar tops), beyond it they rise to catwalk height
+    block(-10.5, -1.5, -14, -9.5, 5.4, -9), block(-10.5, -1.5, -9, -9.5, 6, -2.5), block(-10.5, -1.5, 2.5, -9.5, 6, 9), block(-10.5, -1.5, 9, -9.5, 5.4, 14),
+    block(9.5, -1.5, -14, 10.5, 5.4, -9), block(9.5, -1.5, -9, 10.5, 6, -2.5), block(9.5, -1.5, 2.5, 10.5, 6, 9), block(9.5, -1.5, 9, 10.5, 5.4, 14),
     plat(0, 6, -11.5, 60, 5, 0.6, 3), plat(0, 6, 11.5, 60, 5, 0.6, 3),
     pillar(-20, 0, -5, 1.6, 5), pillar(-20, 0, 5, 1.6, 5), pillar(20, 0, -5, 1.6, 5), pillar(20, 0, 5, 1.6, 5), pillar(0, 0, -5, 1.6, 5), pillar(0, 0, 5, 1.6, 5),
     wall(-26, -1, -24, 1, 0, 1.2), wall(24, -1, 26, 1, 0, 1.2),
@@ -290,7 +291,7 @@ const TOWER: Omit<MapDef, 'id' | 'name' | 'desc'> = {
     // top gallery (y=12): a ring of narrow walkways along the walls
     floorSlab(-20, -14, 20, -10, 12), floorSlab(-20, 10, 20, 14, 12), floorSlab(-20, -10, -16, 10, 12), floorSlab(16, -10, 20, 10, 12),
     pillar(-10, 6, -8, 1.2, 6), pillar(10, 6, -8, 1.2, 6), pillar(-10, 6, 8, 1.2, 6), pillar(10, 6, 8, 1.2, 6),
-    pillar(-10, 0, -9, 1.4, 6), pillar(10, 0, 9, 1.4, 6),
+    pillar(-10, 0, -9, 1.4, 5.4), pillar(10, 0, 9, 1.4, 5.4),
     wall(-14, -4, -13, 4, 0, 1.2), wall(13, -4, 14, 4, 0, 1.2),
   ],
   spawns: [{ pos: [-16, 0, -9], yaw: -W }, { pos: [16, 0, 9], yaw: W }, { pos: [-16, 0, 9], yaw: -W }, { pos: [16, 0, -9], yaw: W }],
