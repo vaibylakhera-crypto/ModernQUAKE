@@ -144,7 +144,7 @@ function resume() {
   sfx.unlock();                    // audio may only start from a user gesture (iOS)
   if (mode === 'title') return;
   menu.hide(); menu.showScores(false);
-  if (TOUCH) { goFullscreen(); touchPlaying = true; touch?.show(true); return; }
+  if (TOUCH) { goFullscreen(); touchPlaying = true; touch?.show(true); if (!guideSeen()) setTimeout(() => showGuide(), 250); return; }
   const wait = Math.max(0, 1300 - (performance.now() - lockExitAt));      // Chrome refuses a re-lock for ~1 s after Esc
   const go = () => { try { const r: any = renderer.domElement.requestPointerLock(); if (r && r.catch) r.catch(() => setTimeout(go, 400)); } catch { /* wait for a click */ } };
   if (wait > 0) setTimeout(go, wait); else go();
@@ -222,6 +222,18 @@ yaw = player.yaw;
 const speedEl = document.getElementById('speed')!;
 const msgEl = document.getElementById('msg')!;
 const hpEl = document.getElementById('hp')!, arEl = document.getElementById('ar')!;
+const hpFill = document.getElementById('hpfill')!, hpOver = document.getElementById('hpover')!, arFill = document.getElementById('arfill')!, arOver = document.getElementById('arover')!;
+const vitalsEl = document.getElementById('vitals')!, pnameEl = document.getElementById('pname')!, dmgDirEl = document.getElementById('dmgdir')!;
+let shownHp = -1, shownAr = -1, dmgDirT = 0;
+/** red arc around the crosshair pointing toward whoever hurt us (ax, az: world direction to the attacker) */
+function showDamageDir(ax: number, az: number) {
+  const fx = -Math.sin(yaw), fz = -Math.cos(yaw), rx = Math.cos(yaw), rz = -Math.sin(yaw);
+  const rel = Math.atan2(ax * rx + az * rz, ax * fx + az * fz);
+  dmgDirEl.style.transform = `rotate(${rel.toFixed(3)}rad)`; dmgDirT = 1;
+}
+let vibrate = true;
+try { vibrate = localStorage.getItem('mq-vibe') !== '0'; } catch { /* ignore */ }
+const buzz = (ms: number) => { if (vibrate && TOUCH) try { navigator.vibrate?.(ms); } catch { /* unsupported */ } };
 let sayTimer: number | undefined;
 function say(text: string) { msgEl.textContent = text; msgEl.style.opacity = '1'; clearTimeout(sayTimer); sayTimer = window.setTimeout(() => (msgEl.style.opacity = '0'), 1100); }
 
@@ -232,7 +244,7 @@ let frags = 0; const fragsEl = document.getElementById('frags')!;
 const combat = new Combat(scene, {
   targets: () => targets,
   playerBody: () => { playerBody.pos.set(player.x, player.y, player.z); playerBody.height = player.height; return playerBody; },
-  hurt(dmg, dir, weapon, owner) { blame(owner, weapon); player.knock(dir.x * 1.5, 0.3, dir.z * 1.5); sfx.hurt(); if (player.takeDamage(dmg)) die('DIED'); },
+  hurt(dmg, dir, weapon, owner) { blame(owner, weapon); showDamageDir(-dir.x, -dir.z); buzz(30); player.knock(dir.x * 1.5, 0.3, dir.z * 1.5); sfx.hurt(); if (player.takeDamage(dmg)) die('DIED'); },
   landed(tg, dmg, point, weapon, killed) { onLanded(tg, dmg, point, weapon, killed); },
   boom(pos, size) { sfx.boom(size, pos.distanceTo(camera.position)); },
   explode(pos, radius, dmg, knock, fromPlayer, weapon, owner) {
@@ -242,7 +254,7 @@ const combat = new Combat(scene, {
     const f = 1 - d / radius; const dir = c.sub(pos).normalize(); dir.y += 0.3; dir.normalize();
     player.knock(dir.x * knock * f, dir.y * knock * f * 1.15, dir.z * knock * f);
     const self = fromPlayer ? 0.4 : 1;
-    blame(fromPlayer ? 'SELF' : owner, weapon); if (!fromPlayer) sfx.hurt();
+    blame(fromPlayer ? 'SELF' : owner, weapon); if (!fromPlayer) { sfx.hurt(); showDamageDir(pos.x - player.x, pos.z - player.z); buzz(40); }
     if (player.takeDamage(dmg * f * self)) die('EXPLODED');
   },
 });
@@ -261,7 +273,7 @@ let matchState: 'lobby' | 'playing' | 'ended' = 'playing';
 let endsAt = 0, timeOffset = 0, hostId = 0;
 const isHost = () => mode === 'online' && net.online && hostId === net.id;
 /** solo pauses while the menu is open; online the world keeps going */
-const paused = () => mode !== 'online' && menu.open;
+const paused = () => mode !== 'online' && (menu.open || guideOpen);
 
 // ---- bots (solo: local; online: run by the host, everyone else sees them as remote players) ----
 const bots: Bot[] = [];
@@ -317,7 +329,10 @@ function board(): PlayerInfo[] {
     ...bots.map((b, i) => ({ id: i + 1, name: b.name, color: BOT_ROSTER.find(r => r.name === b.name)?.color ?? 0xffffff, frags: score(b.name).frags, deaths: score(b.name).deaths, bot: true }))];
 }
 const myId = () => mode === 'online' ? net.id : 0;
-function refreshFrags() { const me = board().find(p => p.id === myId()); fragsEl.textContent = `FRAGS ${me ? me.frags : frags}`; }
+function refreshFrags() {
+  const b = [...board()].sort((x, y) => y.frags - x.frags || x.deaths - y.deaths), i = b.findIndex(p => p.id === myId());
+  const me = b[i]; fragsEl.textContent = `${me ? me.frags : frags} FRAGS${mode !== 'title' && b.length > 1 && i >= 0 ? `  ·  #${i + 1} OF ${b.length}` : ''}`;
+}
 
 // ---- match flow ----
 const nowServer = () => Date.now() + timeOffset;
@@ -343,6 +358,7 @@ const matchEl = document.getElementById('matchbar')!;
 let matchAcc = 0;
 function matchTick(dt: number) {
   matchAcc += dt; if (matchAcc < 0.25) return; matchAcc = 0;
+  refreshFrags();
   if (mode === 'solo') checkSoloEnd();
   let text = '';
   if (mode !== 'title') {
@@ -361,6 +377,52 @@ function pushView() {
     status: mode === 'online' ? (net.online ? '' : netState === 'full' ? 'ROOM IS FULL' : netState === 'connecting' ? 'CONNECTING…' : 'DISCONNECTED') : '',
   };
   menu.setView(v);
+}
+
+// ---- touch controls: size / opacity, first-time guide ----
+function applyControlLook(size: number, alpha: number) {
+  document.body.style.setProperty('--ctl', String(size || 1)); document.body.style.setProperty('--cta', String(alpha || 0.9));
+}
+let guideOpen = false;
+const guideSeen = () => { try { return localStorage.getItem('mq-guide') === '1'; } catch { return true; } };
+/** labels drawn next to the real on-screen controls (positions read from the layout, so it fits every screen) */
+function showGuide(fromSettings = false) {
+  if (!TOUCH) return;
+  if (fromSettings && mode === 'title') { say('START A MATCH TO SEE THE GUIDE'); try { localStorage.removeItem('mq-guide'); } catch { /* ignore */ } return; }
+  if (fromSettings) { try { localStorage.removeItem('mq-guide'); } catch { /* ignore */ } resume(); return; }
+  const el = document.createElement('div'); el.id = 'guide';
+  const tip = (sel: string, text: string, side: 'l' | 'r' | 't' | 'b') => {
+    const t = document.querySelector(sel) as HTMLElement | null; if (!t) return '';
+    const r = t.getBoundingClientRect(); if (!r.width) return '';
+    const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+    const pos = side === 'l' ? `right:${innerWidth - r.left + 10}px;top:${cy}px;transform:translateY(-50%)` : side === 'r' ? `left:${r.right + 10}px;top:${cy}px;transform:translateY(-50%)`
+      : side === 't' ? `left:${cx}px;bottom:${innerHeight - r.top + 8}px;transform:translateX(-50%)` : `left:${cx}px;top:${r.bottom + 8}px;transform:translateX(-50%)`;
+    return `<div class="g-ring" style="left:${r.left - 4}px;top:${r.top - 4}px;width:${r.width + 8}px;height:${r.height + 8}px"></div><div class="g-tip g-${side}" style="${pos}">${text}</div>`;
+  };
+  // the right-hand cluster gets numbered rings + one legend beside it (separate tips would overlap)
+  const rectOf = (sel: string) => (document.querySelector(sel) as HTMLElement | null)?.getBoundingClientRect();
+  const badge = (sel: string, n: number) => { const r = rectOf(sel); if (!r || !r.width) return '';
+    return `<div class="g-ring" style="left:${r.left - 4}px;top:${r.top - 4}px;width:${r.width + 8}px;height:${r.height + 8}px"></div><b class="g-num" style="left:${r.left + r.width * 0.15 - 11}px;top:${r.top + r.height * 0.15 - 11}px">${n}</b>`; };
+  const legendPos = () => {
+    const xs = ['.tfire', '.tjump', '.tcrouch', '.tweap'].map(rectOf).filter(Boolean) as DOMRect[];
+    const left = Math.min(...xs.map(r => r.left)), top = Math.min(...xs.map(r => r.top)), bottom = Math.max(...xs.map(r => r.bottom));
+    return `right:${innerWidth - left + 14}px;top:${(top + bottom) / 2}px;transform:translateY(-50%);text-align:left`;
+  };
+  el.innerHTML = `<div class="g-dim"></div>
+    ${tip('.tstick', 'DRAG TO MOVE<small>anywhere on the left half</small>', 't')}
+    ${badge('.tfire', 1)}${badge('.tjump', 2)}${badge('.tcrouch', 3)}${badge('.tweap', 4)}
+    <div class="g-tip g-legend" style="${legendPos()}">
+      <p><i>1</i>HOLD TO FIRE<small>drag while holding to aim</small></p>
+      <p><i>2</i>JUMP<small>tap again on each landing to bunny-hop</small></p>
+      <p><i>3</i>DUCK<small>tap to crouch, tap again to stand</small></p>
+      <p><i>4</i>NEXT WEAPON<small>or tap a slot in the weapon bar</small></p>
+    </div>
+    ${tip('.tpause', 'MENU &amp; SCORES', 'b')}
+    <div class="g-tip g-aim" style="left:62%;top:38%;transform:translate(-50%,-50%)">SWIPE HERE TO AIM<small>gyro aim: Settings → Controls</small></div>
+    <div class="g-go">TAP ANYWHERE TO PLAY</div>`;
+  document.body.appendChild(el); guideOpen = true;
+  const close = (e: Event) => { e.preventDefault(); e.stopPropagation(); el.remove(); guideOpen = false; try { localStorage.setItem('mq-guide', '1'); } catch { /* ignore */ } };
+  setTimeout(() => { el.addEventListener('touchstart', close, { passive: false }); el.addEventListener('click', close); }, 400);
 }
 
 // ---- online ----
@@ -403,6 +465,7 @@ const net = new Net({
   end(b, winner, _why, next) { matchState = 'ended'; scoreboard = b; endsAt = 0; menu.showEnd(b, winner, net.id, next); refreshFrags(); pushView(); },
   host(id) { hostId = id; syncNetBots(); if (id === net.id) say('YOU ARE NOW THE HOST'); pushView(); },
   bots(list) { if (isHost()) return; for (const b of list) remotes.get(b.id)?.setState(b.p, b.yaw, b.w, b.hp, b.dead); },
+  renamed(id, name, b) { scoreboard = b; remotes.get(id)?.rename(name); refreshFrags(); pushView(); },
   bothit(from, to, dmg, dir, kind) {
     if (!isHost()) return; const b = bots.find(x => x.netId === to);
     b?.hit(dmg, b.pos, dirV(dir), kind, String(from), kind in WEAPON_DEFS ? kind : '');
@@ -412,7 +475,7 @@ const net = new Net({
     const r = remotes.get(id); r?.flashFire(); const o = dirV(m.o);
     combat.remoteShot(m.w, o, dirV(m.d), String(id), Number(m.k) || 1); sfx.shot(m.w, Math.min(0.85, 10 / (o.distanceTo(camera.position) + 4)));
   },
-  hit(from, dmg, dir, kind) { blame(String(from), (kind in WEAPON_DEFS ? kind : 'pistol') as WeaponId); const d = dirV(dir); player.knock(d.x * 1.5, 0.3, d.z * 1.5); sfx.hurt(); if (player.takeDamage(dmg)) die('DIED'); },
+  hit(from, dmg, dir, kind) { blame(String(from), (kind in WEAPON_DEFS ? kind : 'pistol') as WeaponId); const d = dirV(dir); showDamageDir(-d.x, -d.z); buzz(30); player.knock(d.x * 1.5, 0.3, d.z * 1.5); sfx.hurt(); if (player.takeDamage(dmg)) die('DIED'); },
   killed(id, by, b, w) {
     scoreboard = b; refreshFrags(); pushView();
     const v = b.find(p => p.id === id), k = b.find(p => p.id === by);
@@ -485,20 +548,31 @@ const menu = new Menu({
     async setMode(m) { gyro.setMode(m); if (m === 'off') return true; return (await gyro.requestPermission()) || gyro.seen; },
     setSens: v => gyro.setSens(v), setInvert: v => gyro.setInvert(v),
   },
-  settingsChanged(st) { aimSens = st.sens; sfx.setVolume(st.vol); if (st.name) myName = st.name.slice(0, 14); },
+  settingsChanged(st) {
+    aimSens = st.sens; sfx.setVolume(st.vol); vibrate = st.vibe; applyControlLook(st.ctl, st.cta);
+    const nm = (st.name || '').trim().slice(0, 14);
+    if (nm && nm !== myName) {
+      myName = nm; refreshFrags();
+      if (mode === 'online' && net.online) net.send({ t: 'rename', name: nm });    // everyone in the room sees the new name
+      history.replaceState(null, '', location.search.replace(/([?&]name=)[^&]*/, `$1${encodeURIComponent(nm)}`));
+    }
+  },
+  showGuide: () => showGuide(true),
 });
 sfx.setVolume(menu.settings.vol);
+applyControlLook(menu.settings.ctl, menu.settings.cta);
+if (!myName || myName === 'PLAYER') myName = (menu.settings.name || 'PLAYER').slice(0, 14);
 // ---- what to show on load ----
 if (roomCode) {
   const nm = qs.get('name') || savedName;
   if (nm) { let create: MatchCfg | undefined; try { create = qs.get('cfg') ? JSON.parse(qs.get('cfg')!) : undefined; } catch { /* ignore */ }
     enterOnline(roomCode, nm.toUpperCase().slice(0, 14), create); }
-  else { try { localStorage.setItem('mq-room', roomCode); } catch { /* ignore */ } menu.show('join'); }
+  else { try { localStorage.setItem('mq-room', roomCode); } catch { /* ignore */ } menu.afterWelcome = 'join'; menu.show('welcome'); }
 } else if (qs.get('mode') === 'solo') {
   mode = 'solo'; menu.sessionActive = true;
   setBots(BOT_ROSTER.slice(0, Math.max(0, Math.min(7, cfg.bots))).map(d => ({ ...d })), cfg.skill);
   startSoloMatch(); menu.show('pause');
-} else menu.show('title');
+} else menu.show(menu.needsName ? 'welcome' : 'title');
 
 function die(why: string) {
   const recent = performance.now() - killer.at < 6000;
@@ -520,7 +594,7 @@ const killer = { who: '', weapon: 'pistol' as WeaponId, at: 0 };
 function blame(who: string, weapon: WeaponId) { if (!who) return; killer.who = who; killer.weapon = weapon; killer.at = performance.now(); if (/^\d+$/.test(who)) lastAttacker = Number(who); }
 const nameOf = (who: string) => /^\d+$/.test(who) ? (remotes.get(Number(who))?.info.name ?? 'PLAYER') : who;
 let killT = 0;
-function killMark() { killT = 0.45; hitT = 0.3; hitEl.classList.add('kill'); }
+function killMark() { killT = 0.45; hitT = 0.3; hitEl.classList.add('kill'); buzz(15); }
 function onLanded(tg: Target, dmg: number, point: THREE.Vector3, weapon: WeaponId, killed: boolean) {
   hitT = 0.2; sfx.hit(dmg); damageNumber(tg, point, dmg, killed);
   if (killed) {
@@ -600,8 +674,14 @@ let tpFlash = 0; const tpEl = document.createElement('div'); tpEl.style.cssText 
 function hud() {
   speedEl.firstChild!.textContent = String(Math.round(player.speedXZ * 32));
   speedEl.style.color = player.speedXZ > 15 ? '#ff9a3c' : player.speedXZ > 11 ? '#ffe14a' : '#7ffff0';
-  hpEl.firstChild!.textContent = String(Math.max(0, Math.ceil(player.health))); hpEl.style.color = player.health > 50 ? '#ffd24a' : player.health > 25 ? '#ff9a3c' : '#ff4040';
-  arEl.firstChild!.textContent = String(Math.ceil(player.armor));
+  const hp = Math.max(0, Math.ceil(player.health)), ar = Math.max(0, Math.ceil(player.armor));
+  if (hp !== shownHp) {
+    shownHp = hp; hpEl.textContent = String(hp); hpFill.style.width = `${Math.min(100, hp)}%`; hpOver.style.width = `${Math.max(0, Math.min(100, hp - 100))}%`;
+    const low = hp > 0 && hp <= 25; vitalsEl.classList.toggle('low', low); document.body.classList.toggle('lowhp', low);
+  }
+  if (ar !== shownAr) { shownAr = ar; arEl.textContent = String(ar); arFill.style.width = `${Math.min(100, ar)}%`; arOver.style.width = `${Math.max(0, Math.min(100, ar - 100))}%`; }
+  if (pnameEl.textContent !== myName) pnameEl.textContent = myName;
+  if (dmgDirT > 0) { dmgDirT = Math.max(0, dmgDirT - 1 / 60); dmgDirEl.style.opacity = String(Math.min(1, dmgDirT * 1.6)); }
   flashEl.style.opacity = String(Math.max(0, player.hurtT) * 1.6);
   if (player.lastPadTime !== shownPadTime) { shownPadTime = player.lastPadTime; say(player.lastPad); sfx.jumpPad(); }
   refreshBar();

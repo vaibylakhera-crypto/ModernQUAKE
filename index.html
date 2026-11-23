@@ -27,8 +27,6 @@
   #cross.dry{--c:#ff7a6a}
   .stat{position:absolute;bottom:22px;font-weight:700;font-size:64px;letter-spacing:1px;line-height:1}
   .stat small{display:block;font-size:13px;letter-spacing:3px;opacity:.7;font-weight:600}
-  #hp{left:40px;color:#ffd24a}
-  #ar{left:200px;color:#ff9a3c}
   #speed{right:40px;color:#7ffff0}
   #medal{position:absolute;bottom:4px;right:8px;font-size:10px;letter-spacing:2px;opacity:.45;display:none}
   body.fps #medal{display:block}
@@ -36,7 +34,6 @@
   #net{position:absolute;top:18px;right:24px;text-align:right;font-size:14px;letter-spacing:2px;line-height:1.5;color:#bfefff}
   #net b{color:#ffd24a} #net .me{color:#7ffff0}
   #start{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(0,0,10,.55);cursor:pointer;z-index:5;backdrop-filter:blur(3px)}
-  #frags{position:absolute;top:18px;left:24px;font-size:20px;font-weight:700;letter-spacing:3px;color:#ffd24a}
   /* hit marker: 4 diagonal ticks just outside the crosshair */
   #hit{--hs:1;position:absolute;left:50%;top:50%;width:0;height:0;opacity:0;transform:rotate(45deg) scale(var(--hs))}
   #hit.kill i{background:#ff3a2a;box-shadow:0 0 0 1px rgba(0,0,0,.75),0 0 12px #ff2a1a}
@@ -52,7 +49,12 @@
   .kf span{font-size:11px;opacity:.7}
   .kf.out{opacity:0;transform:translateX(20px)}
   #boosts{position:absolute;left:24px;bottom:110px;display:flex;flex-direction:column;gap:6px}
-  body.touch #boosts{bottom:auto;top:calc(clamp(86px,25vh,104px) + env(safe-area-inset-top));left:calc(16px + env(safe-area-inset-left));gap:3px}
+  body.touch #vitals{bottom:auto;top:calc(8px + env(safe-area-inset-top));left:calc(12px + env(safe-area-inset-left));width:clamp(140px,24vw,200px);padding:6px 9px 5px}
+  body.touch #pname{font-size:clamp(10px,2.9vh,12px);margin-bottom:3px}
+  body.touch .vrow{margin:2px 0;gap:5px} body.touch .vrow b{font-size:clamp(13px,4.2vh,18px);min-width:28px} body.touch .vbar{height:7px} body.touch .vico{font-size:12px;width:12px}
+  body.touch #frags{font-size:clamp(9px,2.6vh,11px);margin-top:3px}
+  body.touch #dmgdir{width:180px;height:180px;margin:-90px 0 0 -90px}
+  body.touch #boosts{bottom:auto;top:calc(clamp(96px,31vh,122px) + env(safe-area-inset-top));left:calc(12px + env(safe-area-inset-left));gap:3px}
   body.touch .bst{font-size:clamp(9px,2.8vh,12px);padding:2px 8px 2px 6px;gap:6px}
   .bst{display:flex;align-items:center;gap:10px;padding:4px 10px 4px 8px;background:rgba(6,4,10,.6);border-left:3px solid var(--c);font-weight:700;letter-spacing:2px;font-size:14px;color:var(--c);text-shadow:0 0 8px var(--c)}
   .bst i{font-style:normal;color:#fff;min-width:22px;text-align:right}
@@ -65,8 +67,29 @@
   #hit i:nth-child(2){left:-1.5px;top:9px;width:3px;height:9px}
   #hit i:nth-child(3){top:-1.5px;right:9px;height:3px;width:9px}
   #hit i:nth-child(4){top:-1.5px;left:9px;height:3px;width:9px}
+  /* ---- player panel: name, health / armor bars, frags ---- */
+  #vitals{position:absolute;left:calc(22px + env(safe-area-inset-left));bottom:20px;width:clamp(170px,20vw,250px);padding:10px 12px 9px;background:linear-gradient(180deg,rgba(12,8,6,.72),rgba(12,8,6,.5));border:1px solid rgba(255,180,120,.18);border-left:3px solid #e0782a;border-radius:4px}
+  #pname{font-weight:800;letter-spacing:3px;font-size:13px;color:#f3e3d0;margin-bottom:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .vrow{display:flex;align-items:center;gap:7px;margin:4px 0}
+  .vico{width:16px;text-align:center;font-weight:900;font-size:15px;line-height:1}
+  .vbar{position:relative;flex:1;height:9px;background:rgba(255,255,255,.08);border-radius:2px;overflow:hidden}
+  .vbar i,.vbar em{position:absolute;left:0;top:0;bottom:0;width:0;transition:width .18s}
+  .vrow b{min-width:34px;text-align:right;font-size:21px;line-height:1;font-weight:800}
+  .vhp .vico,.vhp b{color:#ffd9a8} .vhp .vbar i{background:linear-gradient(90deg,#c8501c,#ffb070)} .vhp .vbar em{background:#ff5a4a;mix-blend-mode:screen;opacity:.9}
+  .var .vico,.var b{color:#9fb8ff} .var .vbar i{background:linear-gradient(90deg,#3a5ad8,#9fb8ff)} .var .vbar em{background:#c8d6ff;opacity:.85}
+  #vitals.low .vhp b,#vitals.low .vhp .vico{color:#ff4a3a;animation:lowp .8s ease-in-out infinite}
+  #vitals.low .vhp .vbar i{background:#ff3a2a}
+  @keyframes lowp{50%{opacity:.45}}
+  #frags{margin-top:6px;font-size:12px;font-weight:700;letter-spacing:3px;color:#e0a060}
+  /* low health: red pulsing edges */
+  body.lowhp #aura{opacity:1;box-shadow:inset 0 0 110px rgba(255,30,20,.5);animation:lowp 1s ease-in-out infinite}
+  /* where the damage came from: a red arc around the crosshair, rotated toward the attacker */
+  #dmgdir{position:absolute;left:50%;top:50%;width:220px;height:220px;margin:-110px 0 0 -110px;opacity:0;pointer-events:none}
+  #dmgdir i{position:absolute;left:50%;top:0;width:90px;height:40px;margin-left:-45px;border-top:5px solid #ff3a2a;border-radius:50% 50% 0 0;filter:drop-shadow(0 0 6px #ff2a1a)}
+  #matchbar{background:rgba(10,6,4,.55);padding:5px 14px;border:1px solid rgba(255,180,120,.18);border-radius:20px}
+  #matchbar:empty{display:none}
   #wbar{position:absolute;bottom:8px;left:50%;transform:translateX(-50%);display:flex;gap:8px}
-  .wslot{min-width:92px;padding:6px 10px;border:1px solid #7ffff022;background:#0007;text-align:center;font-weight:700;letter-spacing:2px;font-size:12px;opacity:.55;transition:.12s}
+  .wslot{min-width:92px;padding:6px 10px;border:1px solid rgba(255,180,120,.16);background:rgba(12,8,6,.6);border-radius:3px;text-align:center;font-weight:700;letter-spacing:2px;font-size:12px;opacity:.55;transition:.12s;color:#f3e3d0}
   .wslot b{display:block;font-size:20px;letter-spacing:0}
   .wslot{min-width:64px;opacity:.22;padding:3px 6px !important}
   .wslot.own{opacity:.6}
@@ -83,15 +106,17 @@
   .tonly{display:none}
   /* ---- touch / phone ---- */
   #touch{position:fixed;inset:0;z-index:4;display:none}
-  .tstick{position:absolute;width:clamp(104px,34vh,140px);height:clamp(104px,34vh,140px);transform:translate(-50%,-50%);border-radius:50%;border:2px solid #7ffff088;background:#0a1a2a66;opacity:.55;pointer-events:none;transition:opacity .15s}
+  .tstick{position:absolute;width:clamp(104px,34vh,140px);height:clamp(104px,34vh,140px);transform:translate(-50%,-50%);border-radius:50%;border:2px solid rgba(255,190,140,.45);background:radial-gradient(circle,rgba(30,18,10,.35),rgba(30,18,10,.6));opacity:.55;pointer-events:none;transition:opacity .15s}
   .tstick.active{opacity:1}
-  .tstick i{position:absolute;left:50%;top:50%;width:58px;height:58px;border-radius:50%;background:#7ffff0aa;box-shadow:0 0 14px #0ff8;transform:translate(-50%,-50%)}
-  .tbtn{position:absolute;border-radius:50%;border:2px solid #7ffff066;background:#06121f88;color:#dff;font:700 13px "Rajdhani","Segoe UI",system-ui,sans-serif;letter-spacing:2px;padding:0;touch-action:none;-webkit-tap-highlight-color:transparent}
-  .tbtn.on{background:#7ffff0aa;color:#04101c;border-color:#7ffff0}
+  .tstick i{position:absolute;left:50%;top:50%;width:58px;height:58px;border-radius:50%;background:radial-gradient(circle at 40% 35%,#ffcf9a,#e0782a);box-shadow:0 0 14px rgba(224,120,42,.55);transform:translate(-50%,-50%)}
+  .tbtn{position:absolute;border-radius:50%;border:2px solid rgba(255,190,140,.42);background:radial-gradient(circle at 50% 35%,rgba(40,26,16,.55),rgba(14,9,6,.7));color:#f3e3d0;font:800 10px "Rajdhani","Segoe UI",system-ui,sans-serif;letter-spacing:2px;padding:0;touch-action:none;-webkit-tap-highlight-color:transparent;opacity:var(--cta,.9);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;box-shadow:0 2px 10px rgba(0,0,0,.45)}
+  .tbtn svg{width:42%;height:42%} .tbtn span{font-size:clamp(8px,2.4vh,10px);opacity:.85}
+  .tweap svg,.tpause svg{width:52%;height:52%}
+  .tbtn.on{background:radial-gradient(circle,#ffb070,#e0782a);color:#1a0d05;border-color:#ffd0a0}
   /* touch controls scale with the screen height so they fit small and large phones (F fire, J jump, D small buttons) */
-  body.touch{--F:clamp(70px,23vh,104px);--J:clamp(56px,17vh,80px);--D:clamp(44px,12.5vh,60px);--sr:calc(max(14px,3vw) + env(safe-area-inset-right));--sb:calc(max(10px,4vh) + env(safe-area-inset-bottom))}
+  body.touch{--F:calc(clamp(70px,23vh,104px) * var(--ctl,1));--J:calc(clamp(56px,17vh,80px) * var(--ctl,1));--D:calc(clamp(44px,12.5vh,60px) * var(--ctl,1));--sr:calc(max(14px,3vw) + env(safe-area-inset-right));--sb:calc(max(10px,4vh) + env(safe-area-inset-bottom))}
   .tfire{width:var(--F);height:var(--F);right:var(--sr);bottom:calc(var(--sb) + var(--J) * 0.55);border-color:#ff6a5aaa;font-size:clamp(13px,3.4vh,16px)}
-  .tfire.on{background:#ff6a5acc;border-color:#ff9a8a}
+  .tfire{border-color:rgba(255,110,90,.7);color:#ffd0c8} .tfire.on{background:radial-gradient(circle,#ff8a6a,#c8301c);border-color:#ffb0a0;color:#fff}
   .tjump{width:var(--J);height:var(--J);right:calc(var(--sr) + var(--F) + max(10px,2.4vw));bottom:var(--sb);font-size:clamp(11px,3vh,13px)}
   .tcrouch{width:var(--D);height:var(--D);right:calc(var(--sr) + var(--F) + max(10px,2.4vw) + (var(--J) - var(--D)) / 2);bottom:calc(var(--sb) + var(--J) + max(8px,2.5vh));font-size:clamp(9px,2.6vh,11px)}
   .tweap{width:var(--D);height:var(--D);right:calc(var(--sr) + (var(--F) - var(--D)) / 2);bottom:calc(var(--sb) + var(--J) * 0.55 + var(--F) + max(8px,2.5vh));font-size:clamp(17px,5vh,22px)}
@@ -109,11 +134,7 @@
   body.touch .kf{font-size:clamp(10px,2.9vh,12px);padding:2px 7px;gap:6px}
   body.touch .kf i{font-size:9px;padding:0 4px}
   body.touch .dmg{font-size:17px}
-  body.touch .stat{font-size:clamp(24px,8.5vh,34px);bottom:auto;top:calc(clamp(30px,11vh,48px) + env(safe-area-inset-top))}
   body.touch .stat small{font-size:10px;letter-spacing:2px}
-  body.touch #hp{left:calc(20px + env(safe-area-inset-left))}
-  body.touch #ar{left:calc(110px + env(safe-area-inset-left))}
-  body.touch #frags{font-size:16px;top:calc(12px + env(safe-area-inset-top));left:calc(20px + env(safe-area-inset-left))}
   body.touch #net{font-size:12px;top:calc(10px + env(safe-area-inset-top));right:calc(16px + env(safe-area-inset-right))}
   body.touch #wbar{z-index:6;pointer-events:auto;gap:4px;bottom:calc(4px + env(safe-area-inset-bottom))}
   body.touch .wslot{min-width:clamp(32px,5vw,42px);font-size:7px;letter-spacing:0;padding:2px 3px !important}
@@ -135,6 +156,19 @@
     body.touch .kf i{font-size:0;width:8px;height:8px;padding:0;border-radius:50%;background:var(--w);border:0}   /* weapon = coloured dot */
     body.touch .kf b{max-width:7ch}
   }
+  /* first-time controls guide */
+  #guide{position:fixed;inset:0;z-index:7;font-family:"Rajdhani","Segoe UI",system-ui,sans-serif}
+  #guide .g-dim{position:absolute;inset:0;background:rgba(0,0,0,.55)}
+  #guide .g-ring{position:absolute;border:2px dashed #ffb070;border-radius:50%;box-shadow:0 0 18px rgba(255,150,80,.5)}
+  #guide .g-tip{position:absolute;padding:6px 11px;background:#1a0f08ee;border:1px solid #e0782a;border-radius:4px;color:#ffd9a8;font-weight:800;letter-spacing:2px;font-size:clamp(11px,3.4vh,14px);white-space:nowrap;text-align:center;line-height:1.2}
+  #guide .g-tip small{display:block;font-weight:600;letter-spacing:1px;font-size:.78em;color:#c9a888;margin-top:2px}
+  #guide .g-aim{border-style:dashed}
+  #guide .g-num{position:absolute;width:22px;height:22px;border-radius:50%;background:#e0782a;color:#1a0d05;font-weight:900;font-size:13px;display:flex;align-items:center;justify-content:center;box-shadow:0 0 0 2px #1a0f08}
+  #guide .g-legend{white-space:normal;padding:8px 12px;max-width:min(300px,44vw)}
+  #guide .g-legend p{margin:3px 0;display:grid;grid-template-columns:22px 1fr;column-gap:8px;align-items:start}
+  #guide .g-legend p i{grid-row:span 2;font-style:normal;width:20px;height:20px;border-radius:50%;background:#e0782a;color:#1a0d05;display:flex;align-items:center;justify-content:center;font-size:12px}
+  #guide .g-legend small{grid-column:2;margin-top:0}
+  #guide .g-go{position:absolute;left:50%;bottom:calc(10px + env(safe-area-inset-bottom));transform:translateX(-50%);font-weight:800;letter-spacing:4px;color:#fff;font-size:clamp(12px,3.6vh,16px);animation:lowp 1.2s ease-in-out infinite}
 </style>
 </head>
 <body>
@@ -144,13 +178,17 @@
   <div id="medal"></div>
   <div id="matchbar"></div>
   <div id="msg"></div>
-  <div id="frags">FRAGS 0</div>
+  <div id="vitals">
+    <div id="pname">PLAYER</div>
+    <div class="vrow vhp"><span class="vico">+</span><div class="vbar"><i id="hpfill"></i><em id="hpover"></em></div><b id="hp">100</b></div>
+    <div class="vrow var"><span class="vico">◆</span><div class="vbar"><i id="arfill"></i><em id="arover"></em></div><b id="ar">0</b></div>
+    <div id="frags">0 FRAGS</div>
+  </div>
+  <div id="dmgdir"><i></i></div>
   <div id="hit"><i></i><i></i><i></i><i></i></div>
   <div id="feed"></div>
   <div id="boosts"></div>
   <div id="aura"></div>
-  <div class="stat" id="hp">100<small>HEALTH</small></div>
-  <div class="stat" id="ar">0<small>ARMOR</small></div>
   <div id="wbar"></div>
   <div class="stat" id="speed">0<small>UNITS / SEC</small></div>
 </div>

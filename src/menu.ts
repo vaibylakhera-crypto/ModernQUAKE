@@ -3,7 +3,7 @@
 import type { MatchCfg, PlayerInfo } from './net';
 import type { GyroMode } from './gyro';
 
-export type Screen = 'title' | 'solo' | 'host' | 'join' | 'lobby' | 'pause' | 'settings';
+export type Screen = 'welcome' | 'title' | 'solo' | 'host' | 'join' | 'lobby' | 'pause' | 'settings';
 export interface OpenGame { room: string; host: string; players: number; bots: number; map: string; state: string; frag: number; time: number }
 export interface MenuHooks {
   touch: boolean;
@@ -23,6 +23,8 @@ export interface MenuHooks {
   restartSolo(): void;
   fetchGames(): Promise<OpenGame[]>;
   settingsChanged(s: Settings): void;
+  /** replay the on-screen controls guide */
+  showGuide(): void;
   /** gyro aiming (touch devices) */
   gyro: {
     state(): { mode: GyroMode; sens: number; invertY: boolean; supported: boolean; seen: boolean };
@@ -30,7 +32,7 @@ export interface MenuHooks {
     setSens(v: number): void; setInvert(v: boolean): void;
   };
 }
-export interface Settings { name: string; sens: number; vol: number; quality: 'low' | 'med' | 'high' }
+export interface Settings { name: string; sens: number; vol: number; quality: 'low' | 'med' | 'high'; ctl: number; cta: number; vibe: boolean }
 export interface LobbyView {
   mode: 'solo' | 'online';
   room: string; link: string; meId: number; hostId: number; isHost: boolean;
@@ -60,6 +62,9 @@ const CSS = `
 .m-logo{text-align:center;margin:6px 0 2px;font-size:clamp(26px,min(6.4vw,10vh),60px);white-space:nowrap;font-weight:800;letter-spacing:.1em;line-height:1;background:linear-gradient(180deg,#ffd9a8,#e0782a 55%,#7a2a10);-webkit-background-clip:text;color:transparent;filter:drop-shadow(0 2px 0 #000)}
 .m-sub{text-align:center;font-size:12px;letter-spacing:.4em;color:#c9a888;opacity:.75;margin-bottom:18px}
 .m-h{font-size:13px;letter-spacing:.35em;color:#e0a060;margin:16px 0 8px;font-weight:700}
+.m-chip{display:flex;justify-content:center;align-items:center;gap:8px;margin:-8px auto 14px;width:max-content;max-width:100%;padding:6px 14px;border:1px solid #ffffff22;border-radius:20px;background:#0d0907aa;font-size:12px;letter-spacing:.2em;color:#a89480;cursor:pointer}
+.m-chip b{color:#ffd9a8;letter-spacing:.15em} .m-chip span{color:#e0782a;font-weight:700}
+.m-chip:hover{border-color:#e0782a}
 .m-title{font-size:26px;letter-spacing:.2em;font-weight:800;color:#f3e3d0;margin:4px 0 10px;text-align:center}
 .m-col{display:flex;flex-direction:column;gap:10px}
 .m-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
@@ -132,6 +137,7 @@ export class Menu {
     this.settings = {
       name: load('mq-name', ''), sens: Number(load('mq-sens', '1')) || 1, vol: Number(load('mq-vol', '0.7')),
       quality: (load('mq-quality', 'low') as Settings['quality']),
+      ctl: Number(load('mq-ctl', '1')) || 1, cta: Number(load('mq-cta', '0.9')) || 0.9, vibe: load('mq-vibe', '1') !== '0',
     };
     try { this.draft = { map: 'boreal', bots: 3, skill: 1, frag: 20, time: 10, open: true, ...JSON.parse(load('mq-cfg', '{}')) }; }
     catch { this.draft = { map: 'boreal', bots: 3, skill: 1, frag: 20, time: 10, open: true }; }
@@ -144,6 +150,8 @@ export class Menu {
   }
 
   get open() { return this.root.style.display !== 'none'; }
+  /** where to go once a first-time player has picked a name */
+  afterWelcome: Screen = 'title';
   show(s: Screen) {
     if (s !== 'settings') this.back = s;
     this.screen = s; this.root.style.display = 'flex'; this.root.classList.toggle('wall', !this.sessionActive); this.render();
@@ -158,6 +166,14 @@ export class Menu {
   }
 
   private name() { return (this.settings.name || '').trim().toUpperCase().slice(0, 14) || 'PLAYER'; }
+  /** true until the player has picked a name once */
+  get needsName() { return !(this.settings.name || '').trim(); }
+  static randomName() {
+    const a = ['RUST', 'ASH', 'IRON', 'NOVA', 'GRIM', 'VOID', 'EMBER', 'HOLLOW', 'STATIC', 'COLD', 'FERAL', 'DUSK'];
+    const b = ['WOLF', 'VIPER', 'RAVEN', 'GHOST', 'FANG', 'BOLT', 'MOTH', 'HOUND', 'SHADE', 'WRAITH', 'HAWK', 'TALON'];
+    const r = (l: string[]) => l[Math.floor(Math.random() * l.length)];
+    return `${r(a)}${r(b)}${Math.floor(Math.random() * 90 + 10)}`.slice(0, 14);
+  }
 
   // ───────── rendering ─────────
   private render(soft = false) {
@@ -181,9 +197,18 @@ export class Menu {
       ? `<div class="m-help">Left thumb: move · right thumb: drag to aim · hold FIRE and drag to aim while shooting · tap JUMP each hop</div>`
       : `<div class="m-help"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move · <kbd>SPACE</kbd> jump (tap each hop) · <kbd>C</kbd> crouch · <kbd>1</kbd>-<kbd>8</kbd>/wheel weapons · hold <kbd>TAB</kbd> scores · <kbd>ESC</kbd> menu</div>`;
   }
+  private r_welcome() {
+    return `<div class="m-logo">MODERNQUAKE</div><div class="m-sub">ARENA · FRAG · REPEAT</div>
+      <div class="m-title" style="margin-top:6px">CHOOSE YOUR NAME</div>
+      <div class="m-note" style="margin-bottom:10px">This is what friends see in rooms, on the scoreboard and in the kill feed. You can change it later in Settings.</div>
+      <div class="m-field"><div class="m-row"><input class="m-input" style="flex:1" data-f="wname" maxlength="14" placeholder="YOUR NAME" value="${esc(this.settings.name)}"><button class="m-btn small" data-a="dice" title="Random name">🎲</button></div>
+        <div class="m-note" data-o="werr" style="text-align:left;color:#ff8a6a;min-height:16px"></div></div>
+      <div class="m-col"><button class="m-btn pri" data-a="welcome-go">CONTINUE</button></div>`;
+  }
   private r_title() {
     const a = this.sessionActive;
     return `<div class="m-logo">MODERNQUAKE</div><div class="m-sub">ARENA · FRAG · REPEAT</div>
+      <div class="m-chip" data-a="go-settings">PLAYING AS <b>${esc(this.name())}</b> <span>✎ CHANGE</span></div>
       <div class="m-col">
         ${a ? `<button class="m-btn pri" data-a="resume">RESUME</button>` : ''}
         <button class="m-btn ${a ? '' : 'pri'}" data-a="go-solo">PLAY SOLO</button>
@@ -270,16 +295,25 @@ export class Menu {
   private r_settings() {
     const s = this.settings;
     const q = (v: Settings['quality'], label: string) => `<button data-a="set-q" data-v="${v}" class="${s.quality === v ? 'on' : ''}">${label}</button>`;
+    const touch = this.h.touch;
     return `<div class="m-title">SETTINGS</div>
-      <div class="m-field"><label>NAME</label><input class="m-input" data-f="name" maxlength="14" value="${esc(s.name)}" placeholder="NAME"></div>
-      <div class="m-field"><label>${this.h.touch ? 'AIM SPEED' : 'MOUSE SENSITIVITY'} · <span data-o="sens">${s.sens.toFixed(1)}</span></label><input class="m-range" type="range" min="0.3" max="3" step="0.1" data-f="sens" value="${s.sens}"></div>
-      ${this.h.touch ? this.gyroControls() : ''}
+      <div class="m-h">PROFILE</div>
+      <div class="m-field"><label>NAME</label><div class="m-row"><input class="m-input" style="flex:1" data-f="name" maxlength="14" value="${esc(s.name)}" placeholder="NAME"><button class="m-btn small" data-a="dice-set" title="Random name">🎲</button></div></div>
+      <div class="m-h">CONTROLS</div>
+      <div class="m-field"><label>${touch ? 'AIM SPEED' : 'MOUSE SENSITIVITY'} · <span data-o="sens">${s.sens.toFixed(1)}</span></label><input class="m-range" type="range" min="0.3" max="3" step="0.1" data-f="sens" value="${s.sens}"></div>
+      ${touch ? `
+      <div class="m-field"><label>BUTTON SIZE · <span data-o="ctl">${Math.round(s.ctl * 100)}</span>%</label><input class="m-range" type="range" min="0.8" max="1.3" step="0.05" data-f="ctl" value="${s.ctl}"></div>
+      <div class="m-field"><label>BUTTON OPACITY · <span data-o="cta">${Math.round(s.cta * 100)}</span>%</label><input class="m-range" type="range" min="0.35" max="1" step="0.05" data-f="cta" value="${s.cta}"></div>
+      <div class="m-field"><label>VIBRATION</label><div class="m-seg"><button data-a="vibe" data-v="1" class="${s.vibe ? 'on' : ''}">ON</button><button data-a="vibe" data-v="0" class="${!s.vibe ? 'on' : ''}">OFF</button></div><div class="m-note" style="text-align:left;margin-top:4px">A short buzz when you are hit or get a kill (Android).</div></div>
+      ${this.gyroControls()}
+      <div class="m-col" style="margin-bottom:8px"><button class="m-btn small" data-a="guide">SHOW CONTROLS GUIDE</button></div>` : ''}
+      <div class="m-h">AUDIO</div>
       <div class="m-field"><label>VOLUME · <span data-o="vol">${Math.round(s.vol * 100)}</span>%</label><input class="m-range" type="range" min="0" max="1" step="0.05" data-f="vol" value="${s.vol}"></div>
-      <div class="m-field"><label>GRAPHICS</label><div class="m-seg">${q('low', 'FAST')}${q('med', 'BALANCED')}${q('high', 'BEST')}</div>
+      <div class="m-h">GRAPHICS</div>
+      <div class="m-field"><div class="m-seg">${q('low', 'FAST')}${q('med', 'BALANCED')}${q('high', 'BEST')}</div>
         <div class="m-note" style="text-align:left;margin-top:4px">FAST suits phones. Changing graphics reloads the game.</div></div>
       <div class="m-col"><button class="m-btn pri" data-a="back">DONE</button></div>`;
   }
-
   private gyroNote = '';
   private gyroControls() {
     const g = this.h.gyro.state();
@@ -297,6 +331,8 @@ export class Menu {
     if (f === 'name') { this.settings.name = t.value.replace(/[^\w \-]/g, '').toUpperCase(); save('mq-name', this.settings.name); }
     if (f === 'code') save('mq-room', t.value.toUpperCase());
     if (f === 'sens') { this.settings.sens = Number(t.value); save('mq-sens', t.value); const o = this.el.querySelector('[data-o="sens"]'); if (o) o.textContent = this.settings.sens.toFixed(1); }
+    if (f === 'wname') { this.settings.name = t.value.replace(/[^\w \-]/g, '').toUpperCase(); const e2 = this.el.querySelector('[data-o="werr"]'); if (e2) e2.textContent = ''; }
+    if (f === 'ctl' || f === 'cta') { (this.settings as any)[f] = Number(t.value); save('mq-' + f, t.value); const o = this.el.querySelector(`[data-o="${f}"]`); if (o) o.textContent = String(Math.round(Number(t.value) * 100)); }
     if (f === 'gsens') { this.h.gyro.setSens(Number(t.value)); const o = this.el.querySelector('[data-o="gsens"]'); if (o) o.textContent = Number(t.value).toFixed(1); }
     if (f === 'vol') { this.settings.vol = Number(t.value); save('mq-vol', t.value); const o = this.el.querySelector('[data-o="vol"]'); if (o) o.textContent = String(Math.round(this.settings.vol * 100)); }
     this.h.settingsChanged(this.settings);
@@ -338,6 +374,19 @@ export class Menu {
         });
         break;
       }
+      case 'dice': case 'dice-set': {
+        const n = Menu.randomName(); const inp = this.el.querySelector(a === 'dice' ? '[data-f="wname"]' : '[data-f="name"]') as HTMLInputElement | null;
+        if (inp) inp.value = n;
+        this.settings.name = n; if (a === 'dice-set') { save('mq-name', n); this.h.settingsChanged(this.settings); }
+        break;
+      }
+      case 'welcome-go': {
+        const n = (this.settings.name || '').trim().toUpperCase();
+        if (n.length < 2) { const e2 = this.el.querySelector('[data-o="werr"]'); if (e2) e2.textContent = 'Pick a name with at least 2 letters (or tap 🎲).'; break; }
+        this.settings.name = n; save('mq-name', n); this.h.settingsChanged(this.settings); this.show(this.afterWelcome); break;
+      }
+      case 'vibe': this.settings.vibe = v === '1'; save('mq-vibe', v); this.h.settingsChanged(this.settings); this.render(); break;
+      case 'guide': this.h.showGuide(); break;
       case 'ginv': this.h.gyro.setInvert(v === '1'); this.render(); break;
       case 'set-q': if (v !== this.settings.quality) { this.settings.quality = v as Settings['quality']; save('mq-quality', v); this.h.settingsChanged(this.settings); location.reload(); } break;
     }

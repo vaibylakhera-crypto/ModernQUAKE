@@ -23,13 +23,14 @@ export class TouchControls {
 
   constructor(private hooks: TouchHooks) {
     const el = this.el = document.createElement('div'); el.id = 'touch';
+    const svg = (d: string) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
     el.innerHTML = `
       <div class="tstick"><i></i></div>
-      <button class="tbtn tfire" data-b="fire">FIRE</button>
-      <button class="tbtn tjump" data-b="jump">JUMP</button>
-      <button class="tbtn tcrouch" data-b="crouch">DUCK</button>
-      <button class="tbtn tweap" data-b="weap">⇄</button>
-      <button class="tbtn tpause" data-b="pause">❚❚</button>`;
+      <button class="tbtn tfire" data-b="fire">${svg('<circle cx="12" cy="12" r="7"/><path d="M12 2v5M12 17v5M2 12h5M17 12h5"/><circle cx="12" cy="12" r="1.2" fill="currentColor"/>')}<span>FIRE</span></button>
+      <button class="tbtn tjump" data-b="jump">${svg('<path d="M6 13l6-6 6 6M6 19l6-6 6 6"/>')}<span>JUMP</span></button>
+      <button class="tbtn tcrouch" data-b="crouch">${svg('<path d="M6 8l6 6 6-6M6 19h12"/>')}<span>DUCK</span></button>
+      <button class="tbtn tweap" data-b="weap">${svg('<path d="M4 8h13l-3-3M20 16H7l3 3"/>')}</button>
+      <button class="tbtn tpause" data-b="pause">${svg('<path d="M9 6v12M15 6v12"/>')}</button>`;
     document.body.appendChild(el);
     this.base = el.querySelector<HTMLDivElement>('.tstick')!; this.knob = this.base.querySelector<HTMLDivElement>('i')!;
     this.home();

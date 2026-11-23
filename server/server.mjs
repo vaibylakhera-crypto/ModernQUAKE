@@ -176,6 +176,10 @@ wss.on('connection', (ws, req) => {
         bcast(room, { t: 'start', ...roomInfo(room) }); break;
       }
       case 'stop': { if (isHost() && room.state === 'playing') endMatch(room, 'host'); break; }
+      case 'rename': {
+        const nn = String(m.name || '').replace(/[^\w \-]/g, '').slice(0, 14).trim(); if (!nn) return;
+        me.name = nn; bcast(room, { t: 'renamed', id, name: nn, board: board(room) }); break;
+      }
     }
   });
   ws.on('close', () => {

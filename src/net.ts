@@ -31,7 +31,7 @@ export class RemotePlayer implements Target {
     if (info.weapon) this.weapon = info.weapon;
     buildFighter(info.id % 2 ? 'male' : 'female', info.color).then(rig => {
       this.rig = rig; parent.add(rig.root);
-      const label = nameSprite(info.name, info.color); label.position.set(0, 2.25, 0); rig.root.add(label);
+      const label = nameSprite(info.name, info.color); label.position.set(0, 2.25, 0); rig.root.add(label); this.label = label;
       animate(rig, { t: 0, speed: 0, dead: 0, look: 0, pain: 0, fire: 0 }); this.holder = holdWeapon(rig, this.weapon); this.apply();
     });
   }
@@ -45,6 +45,13 @@ export class RemotePlayer implements Target {
     if (this.first) { this.pos.copy(this.tPos); this.yaw = this.tYaw; this.first = false; }
   }
   flashFire() { this.fireK = 1; }
+  private label: THREE.Sprite | null = null;
+  /** the player changed their name mid-game: redraw the tag over their head */
+  rename(name: string) {
+    this.info.name = name; if (!this.label || !this.rig) return;
+    const old = this.label; const nl = nameSprite(name, this.info.color); nl.position.copy(old.position);
+    this.rig.root.add(nl); old.removeFromParent(); (old.material as THREE.SpriteMaterial).map?.dispose(); this.label = nl;
+  }
   hit(dmg: number, _from: THREE.Vector3, dir: THREE.Vector3, kind: string) { if (!PROJECTILE_KINDS.has(kind)) this.sendHit(this.info.id, dmg, dir, kind); }
   update(dt: number) {
     const bx = this.pos.x, bz = this.pos.z;
@@ -73,6 +80,7 @@ export interface NetEvents {
   host(id: number): void;
   bots(list: { id: number; p: number[]; yaw: number; w: WeaponId; hp: number; dead: boolean }[]): void;
   bothit(from: number, to: number, dmg: number, dir: number[], kind: string): void;
+  renamed(id: number, name: string, board: PlayerInfo[]): void;
   state(id: number, m: any): void; fire(id: number, m: any): void;
   hit(from: number, dmg: number, dir: number[], kind: string): void;
   killed(id: number, by: number, board: PlayerInfo[], weapon?: string): void;
@@ -111,6 +119,7 @@ export class Net {
         case 'host': this.ev.host(m.host); break;
         case 'bots': this.ev.bots(m.l); break;
         case 'bothit': this.ev.bothit(m.from, m.to, m.dmg, m.dir, m.kind); break;
+        case 'renamed': this.ev.renamed(m.id, m.name, m.board); break;
         case 'leave': this.ev.leave(m.id); break;
         case 'state': this.ev.state(m.id, m); break;
         case 'fire': this.ev.fire(m.id, m); break;
