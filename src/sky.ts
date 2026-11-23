@@ -8,7 +8,7 @@ varying vec3 vDir;
 void main(){
   vDir = normalize(position);
   gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-  gl_Position.z = gl_Position.w;
+  gl_Position.z = gl_Position.w * 0.99995;
 }`;
 
 const frag = /* glsl */ `
@@ -221,7 +221,7 @@ export class Stars {
     const m = new THREE.ShaderMaterial({
       transparent: false, depthWrite: false, depthTest: true, blending: THREE.AdditiveBlending, uniforms: { uPx: { value: 1 } },
       vertexShader: `attribute vec3 aCol; attribute float aSize; uniform float uPx; varying vec3 vC;
-        void main(){ vC = aCol; gl_PointSize = aSize * uPx; vec4 p = projectionMatrix * modelViewMatrix * vec4(position, 1.0); gl_Position = p; gl_Position.z = gl_Position.w; }`,
+        void main(){ vC = aCol; gl_PointSize = aSize * uPx; vec4 p = projectionMatrix * modelViewMatrix * vec4(position, 1.0); gl_Position = p; gl_Position.z = gl_Position.w * 0.99995; }`,
       fragmentShader: `precision mediump float; varying vec3 vC;
         void main(){ float d = length(gl_PointCoord - 0.5); float a = smoothstep(0.5, 0.05, d); gl_FragColor = vec4(vC * a * a * 1.6, a); }`,
     });

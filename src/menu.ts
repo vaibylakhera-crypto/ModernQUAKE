@@ -216,7 +216,7 @@ export class Menu {
         <button class="m-btn" data-a="go-join">JOIN GAME</button>
         <button class="m-btn ghost" data-a="go-settings">SETTINGS</button>
         ${a ? `<button class="m-btn ghost" data-a="leave">LEAVE MATCH</button>` : ''}
-      </div>${this.help()}`;
+      </div>${this.help()}<div class="m-help" style="opacity:.5;margin-top:4px">BUILD ${typeof __BUILD__ === 'string' ? __BUILD__ : 'DEV'}</div>`;
   }
   private cfgControls(c: MatchCfg, host: boolean, editable = true) {
     const dis = editable ? '' : 'disabled';

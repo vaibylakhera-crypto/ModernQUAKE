@@ -85,6 +85,10 @@ function floorGrid(min: THREE.Vector3, max: THREE.Vector3): THREE.BufferGeometry
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
   g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  // flat floor with uv = (x, -z) / 4: tangent is +X, bitangent -Z. Giving it explicitly means the normal map never has to
+  // rebuild a tangent frame from screen derivatives, which produces black / flickering pixels on some phone GPUs.
+  const tan = new Float32Array((pos.length / 3) * 4); for (let i = 0; i < tan.length; i += 4) { tan[i] = 1; tan[i + 3] = 1; }
+  g.setAttribute('tangent', new THREE.BufferAttribute(tan, 4));
   return g;
 }
 
@@ -142,7 +146,7 @@ export class Arena {
         : new THREE.MeshLambertMaterial(o);
     };
     for (const [part, geos] of this.parts) {
-      const m = new THREE.Mesh(mergeGeometries(geos.map(g => { for (const n of Object.keys(g.attributes)) if (!['position', 'normal', 'uv', 'color'].includes(n)) g.deleteAttribute(n); if (!g.getAttribute('color')) { const c = new Float32Array(g.getAttribute('position').count * 3).fill(1); g.setAttribute('color', new THREE.BufferAttribute(c, 3)); } if (!g.getAttribute('uv')) g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(g.getAttribute('position').count * 2), 2)); return g.index ? g.toNonIndexed() : g; }))!, mat(part));
+      const m = new THREE.Mesh(mergeGeometries(geos.map(g => { for (const n of Object.keys(g.attributes)) if (!['position', 'normal', 'uv', 'color', 'tangent'].includes(n)) g.deleteAttribute(n); if (!g.getAttribute('color')) { const c = new Float32Array(g.getAttribute('position').count * 3).fill(1); g.setAttribute('color', new THREE.BufferAttribute(c, 3)); } if (!g.getAttribute('uv')) g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(g.getAttribute('position').count * 2), 2)); return g.index ? g.toNonIndexed() : g; }))!, mat(part));
       m.matrixAutoUpdate = false; this.group.add(m); this.stats.merged++;
     }
   }

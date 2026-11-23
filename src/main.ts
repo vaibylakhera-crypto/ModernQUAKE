@@ -104,6 +104,33 @@ key.position.copy(sky.sunDir).multiplyScalar(100); scene.add(key);
 const rim = new THREE.DirectionalLight(STYLE === 'kit' ? 0x7a8cff : 0x5a6a90, Q.pbr ? 1.6 : 1.0); rim.position.set(-40, 20, 60); scene.add(rim);
 
 let composer: EffectComposer | null = null;
+// ---- safety nets for phone GPUs ----
+// glow (bloom) needs float render targets; some phones lack them and would show a black screen
+const canBloom = renderer.capabilities.isWebGL2 && (renderer.extensions.has('EXT_color_buffer_float') || renderer.extensions.has('EXT_color_buffer_half_float'));
+if (Q.bloom && !canBloom) Q.bloom = false;
+// a shader that fails to compile on this phone: drop to the FAST look once (reloads), and show what happened
+const gfxErrors: string[] = [];
+renderer.debug.onShaderError = (gl, program, vs, fs) => {
+  const log = (gl.getProgramInfoLog(program) || '') + (gl.getShaderInfoLog(vs) || '') + (gl.getShaderInfoLog(fs) || '');
+  gfxErrors.push(log.slice(0, 300)); console.error('shader error', log);
+  let tried = false; try { tried = sessionStorage.getItem('mq-gfx-fallback') === '1'; } catch { /* ignore */ }
+  if (Q.tier !== 'low' && !tried) { try { sessionStorage.setItem('mq-gfx-fallback', '1'); localStorage.setItem('mq-quality', 'low'); } catch { /* ignore */ } location.reload(); }
+};
+// ?debug: small panel with the GPU, WebGL version and any graphics errors (to diagnose a phone remotely)
+if (new URLSearchParams(location.search).has('debug')) {
+  const d = document.createElement('div'); d.style.cssText = 'position:fixed;left:6px;bottom:6px;z-index:9;max-width:60vw;font:11px monospace;color:#ffd9a8;background:#000c;padding:6px;white-space:pre-wrap;pointer-events:none';
+  document.body.appendChild(d);
+  const gl = renderer.getContext(); const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+  const gpu = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER);
+  setInterval(() => { d.textContent = `BUILD ${__BUILD__} · ${Q.tier.toUpperCase()} · WebGL${renderer.capabilities.isWebGL2 ? 2 : 1}\nGPU ${gpu}\ncalls ${renderer.info.render.calls} tris ${renderer.info.render.triangles} progs ${renderer.info.programs?.length}\n${gfxErrors.length ? 'ERRORS:\n' + gfxErrors.join('\n') : 'no graphics errors'}`; }, 1000);
+}
+// stale copy guard: if the server has a newer build than the code running here, reload once
+fetch('/version.json', { cache: 'no-store' }).then(r => r.ok ? r.json() : null).then(v => {
+  if (!v || !v.v || v.v === __BUILD__) return;
+  let done = false; try { done = sessionStorage.getItem('mq-reloaded-for') === v.v; sessionStorage.setItem('mq-reloaded-for', v.v); } catch { /* ignore */ }
+  if (!done) location.reload();
+}).catch(() => { /* offline / dev server */ });
+
 if (Q.bloom) {
   composer = new EffectComposer(renderer);
   composer.addPass(new RenderPass(scene, camera));
