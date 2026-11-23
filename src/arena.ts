@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { boxes, pads, Box } from './level';
+import { boxes, pads, Box, teleporters } from './level';
 import { Quality } from './quality';
-import { buildPad, padTime } from './pads';
+import { buildPad, padTime, buildTeleporter, teleTime } from './pads';
 
 // "Alien fortress" arena: solid brush-style geometry built straight from the collision boxes, with original procedural
 // textures (scripts/make-alien-textures.py): worn slab floors, dark stone walls with alien veins, corroded iron trim,
@@ -115,7 +115,9 @@ export class Arena {
   private parts = new Map<Part, THREE.BufferGeometry[]>();
   constructor(private q: Quality) {
     pads.forEach((p, i) => this.group.add(buildPad(p, i, { beams: q.padBeams })));
+    for (const t of teleporters) { const g = buildTeleporter(t.pos, t.dest); this.group.add(g.gate, g.exit); this.spin.push(...g.spin); }
   }
+  private spin: THREE.Object3D[] = [];
 
   private add(part: Part, g: THREE.BufferGeometry) {
     let l = this.parts.get(part); if (!l) this.parts.set(part, (l = [])); l.push(g); this.stats.pieces++;
@@ -193,5 +195,5 @@ export class Arena {
     this.add('trim', top); this.add('wall', rest);
   }
 
-  update(t: number) { padTime.value = t; }
+  update(t: number) { padTime.value = t; teleTime.value = t; this.spin.forEach((o, i) => { o.rotation.z = t * (i % 2 ? -1.4 : 1.1); o.position.y += Math.sin(t * 2 + i) * 0.002; }); }
 }

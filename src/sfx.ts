@@ -75,6 +75,8 @@ export function boom(size: number, dist: number) {
 }
 /** we took damage */
 export function hurt() { if (!ready()) return; tone(0.14, 0.4, 'sine', 160, 70); burst(0.1, 0.25, 'lowpass', 900, 200, 0.8); }
+export function teleport() { if (!ready()) return; tone(0.35, 0.3, 'sine', 300, 1400); tone(0.4, 0.18, 'triangle', 1800, 400, 0.05); burst(0.3, 0.2, 'bandpass', 4000, 800, 2); }
+export function powerup() { if (!ready()) return; tone(0.12, 0.3, 'square', 440, 880); tone(0.14, 0.3, 'square', 660, 1320, 0.1); tone(0.3, 0.25, 'triangle', 880, 1760, 0.2); }
 export function pickup() { if (!ready()) return; tone(0.08, 0.2, 'sine', 660, 990); tone(0.1, 0.18, 'sine', 990, 1320, 0.06); }
 export function jumpPad() { if (!ready()) return; tone(0.3, 0.22, 'sine', 220, 880); }
 export function died() { if (!ready()) return; tone(0.6, 0.35, 'sawtooth', 300, 50); }

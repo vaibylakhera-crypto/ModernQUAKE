@@ -190,6 +190,8 @@ export class Combat {
   private rings: { m: THREE.Mesh; life: number; r: number }[] = [];
   private arc: { core: THREE.Mesh; glow: THREE.Mesh }[] = []; private arcT = 0; private arcA = new THREE.Vector3(); private arcB = new THREE.Vector3();
   shake = 0;
+  /** OVERDRIVE booster: multiplies the local player's damage */
+  dmgMul = 1;
   private bolts: THREE.Object3D[] = []; private rocketProto!: THREE.Group;
 
   constructor(private scene: THREE.Scene, public hooks: CombatHooks) {
@@ -216,19 +218,20 @@ export class Combat {
   /** eye/dir: aim ray; muzzle: where the effect visibly starts. Returns nothing; applies damage to targets. */
   fire(id: WeaponId, eye: THREE.Vector3, dir: THREE.Vector3, muzzle: THREE.Vector3) {
     const st = WEAPON_DEFS[id].stats; const col = WEAPON_DEFS[id].color;
-    if (st.kind === 'melee') return this.melee(eye, dir, st.range!, st.damage);
+    const dmg = st.damage * this.dmgMul;
+    if (st.kind === 'melee') return this.melee(eye, dir, st.range!, dmg);
     if (st.kind === 'projectile') {
       const aim = this.aimPoint(eye, dir, 200);
       const d = aim.clone().sub(muzzle).normalize();
       const spread = st.spread ?? 0; if (spread) { d.x += (Math.random() - .5) * spread * 2; d.y += (Math.random() - .5) * spread * 2; d.z += (Math.random() - .5) * spread * 2; d.normalize(); }
-      return this.spawnProj(id, muzzle.clone(), d.multiplyScalar(st.speed!));
+      return this.spawnProj(id, muzzle.clone(), d.multiplyScalar(st.speed!), true, dmg);
     }
-    if (st.kind === 'beam') { this.arcT = 0.09; this.arcA.copy(muzzle); const r = this.trace(eye, dir, st.range!, st.damage, 'arc', false, 'arc'); this.arcB.copy(r.point); if (r.hitWorld) this.sparks(r.point, r.n!, 0x9a7bff, 3); return; }
+    if (st.kind === 'beam') { this.arcT = 0.09; this.arcA.copy(muzzle); const r = this.trace(eye, dir, st.range!, dmg, 'arc', false, 'arc'); this.arcB.copy(r.point); if (r.hitWorld) this.sparks(r.point, r.n!, 0x9a7bff, 3); return; }
     const pellets = st.pellets ?? 1;
     for (let i = 0; i < pellets; i++) {
       const d = dir.clone(); const sp = st.spread ?? 0;
       if (sp) { d.x += (Math.random() - .5) * sp * 2; d.y += (Math.random() - .5) * sp * 2; d.z += (Math.random() - .5) * sp * 2; d.normalize(); }
-      const r = this.trace(eye, d, st.range!, st.damage, id, st.kind === 'rail', id);
+      const r = this.trace(eye, d, st.range!, dmg, id, st.kind === 'rail', id);
       if (st.kind === 'rail') { this.railBeam(muzzle, r.point); this.sparks(r.point, r.n ?? new THREE.Vector3(0, 1, 0), col, 14); this.shake = Math.max(this.shake, 0.5); }
       else {
         const sc = id === 'scatter';
@@ -293,9 +296,9 @@ export class Combat {
   }
 
   /** another online player's shot, replicated here: projectiles are real (they hurt us), hitscan is visual only (their client reports the hit) */
-  remoteShot(id: WeaponId, muzzle: THREE.Vector3, dir: THREE.Vector3, owner = '') {
+  remoteShot(id: WeaponId, muzzle: THREE.Vector3, dir: THREE.Vector3, owner = '', mul = 1) {
     const st = WEAPON_DEFS[id].stats; const col = WEAPON_DEFS[id].color;
-    if (st.kind === 'projectile') { this.spawnProj(id, muzzle.clone(), dir.clone().multiplyScalar(st.speed!), false, st.damage, owner); return; }
+    if (st.kind === 'projectile') { this.spawnProj(id, muzzle.clone(), dir.clone().multiplyScalar(st.speed!), false, st.damage * Math.min(2, Math.max(1, mul)), owner); return; }
     if (st.kind === 'melee') return;
     const range = st.range ?? 200; const w = rayWorld(muzzle, dir, range); const end = muzzle.clone().addScaledVector(dir, w ? w.t : range);
     if (st.kind === 'rail') { this.railBeam(muzzle, end); if (w) this.sparks(end, w.n, col, 10); }
@@ -371,6 +374,15 @@ export class Combat {
       this.particles.spawn(p.clone(), v, 0.5 + Math.random() * 0.5, 0.09, 0.02, 0xffd080, { grav: 14 });
     }
     const r = this.rings.find(x => x.life <= 0); if (r) { r.life = 0.35; r.r = radius; r.m.visible = true; r.m.position.copy(p); r.m.lookAt(p.clone().add(new THREE.Vector3(0, 1, 0))); }
+  }
+
+  /** teleporter burst: a column of violet motes */
+  teleportFx(p: THREE.Vector3) {
+    this.particles.spawn(p.clone().add(new THREE.Vector3(0, 1, 0)), new THREE.Vector3(), 0.3, 1.5, 3.2, 0xc8a0ff, { a: 0.9 });
+    for (let i = 0; i < 26; i++) {
+      const a = Math.random() * Math.PI * 2, r = 0.4 + Math.random() * 0.6;
+      this.particles.spawn(p.clone().add(new THREE.Vector3(Math.cos(a) * r, Math.random() * 2, Math.sin(a) * r)), new THREE.Vector3(0, 2 + Math.random() * 3, 0), 0.5 + Math.random() * 0.4, 0.22, 0.03, 0xa86bff);
+    }
   }
 
   plasmaSplash(p: THREE.Vector3, n: THREE.Vector3) {

@@ -51,6 +51,14 @@
   .kf i{font-style:normal;font-size:11px;letter-spacing:2px;padding:1px 6px;border:1px solid var(--w);color:var(--w);border-radius:3px}
   .kf span{font-size:11px;opacity:.7}
   .kf.out{opacity:0;transform:translateX(20px)}
+  #boosts{position:absolute;left:24px;bottom:110px;display:flex;flex-direction:column;gap:6px}
+  body.touch #boosts{bottom:auto;top:calc(clamp(86px,25vh,104px) + env(safe-area-inset-top));left:calc(16px + env(safe-area-inset-left));gap:3px}
+  body.touch .bst{font-size:clamp(9px,2.8vh,12px);padding:2px 8px 2px 6px;gap:6px}
+  .bst{display:flex;align-items:center;gap:10px;padding:4px 10px 4px 8px;background:rgba(6,4,10,.6);border-left:3px solid var(--c);font-weight:700;letter-spacing:2px;font-size:14px;color:var(--c);text-shadow:0 0 8px var(--c)}
+  .bst i{font-style:normal;color:#fff;min-width:22px;text-align:right}
+  #aura{position:fixed;inset:0;pointer-events:none;opacity:0;transition:opacity .4s}
+  #aura.od{opacity:1;box-shadow:inset 0 0 90px rgba(255,58,216,.38)}
+  #aura.hs{opacity:1;box-shadow:inset 0 0 70px rgba(53,224,255,.22)}
   @keyframes kfin{from{opacity:0;transform:translateX(30px)}to{opacity:1;transform:none}}
   #hit i{position:absolute;background:#fff;box-shadow:0 0 0 1px rgba(0,0,0,.75),0 0 8px #ff4a3a;border-radius:1px}
   #hit i:nth-child(1){left:-1.5px;bottom:9px;width:3px;height:9px}
@@ -75,16 +83,18 @@
   .tonly{display:none}
   /* ---- touch / phone ---- */
   #touch{position:fixed;inset:0;z-index:4;display:none}
-  .tstick{position:absolute;width:130px;height:130px;margin:-65px 0 0 -65px;border-radius:50%;border:2px solid #7ffff088;background:#0a1a2a66;opacity:.55;pointer-events:none;transition:opacity .15s}
+  .tstick{position:absolute;width:clamp(104px,34vh,140px);height:clamp(104px,34vh,140px);transform:translate(-50%,-50%);border-radius:50%;border:2px solid #7ffff088;background:#0a1a2a66;opacity:.55;pointer-events:none;transition:opacity .15s}
   .tstick.active{opacity:1}
   .tstick i{position:absolute;left:50%;top:50%;width:58px;height:58px;border-radius:50%;background:#7ffff0aa;box-shadow:0 0 14px #0ff8;transform:translate(-50%,-50%)}
   .tbtn{position:absolute;border-radius:50%;border:2px solid #7ffff066;background:#06121f88;color:#dff;font:700 13px "Rajdhani","Segoe UI",system-ui,sans-serif;letter-spacing:2px;padding:0;touch-action:none;-webkit-tap-highlight-color:transparent}
   .tbtn.on{background:#7ffff0aa;color:#04101c;border-color:#7ffff0}
-  .tfire{width:96px;height:96px;right:calc(28px + env(safe-area-inset-right));bottom:calc(70px + env(safe-area-inset-bottom));border-color:#ff6a5aaa;font-size:16px}
+  /* touch controls scale with the screen height so they fit small and large phones (F fire, J jump, D small buttons) */
+  body.touch{--F:clamp(70px,23vh,104px);--J:clamp(56px,17vh,80px);--D:clamp(44px,12.5vh,60px);--sr:calc(max(14px,3vw) + env(safe-area-inset-right));--sb:calc(max(10px,4vh) + env(safe-area-inset-bottom))}
+  .tfire{width:var(--F);height:var(--F);right:var(--sr);bottom:calc(var(--sb) + var(--J) * 0.55);border-color:#ff6a5aaa;font-size:clamp(13px,3.4vh,16px)}
   .tfire.on{background:#ff6a5acc;border-color:#ff9a8a}
-  .tjump{width:72px;height:72px;right:calc(140px + env(safe-area-inset-right));bottom:calc(40px + env(safe-area-inset-bottom))}
-  .tcrouch{width:56px;height:56px;right:calc(140px + env(safe-area-inset-right));bottom:calc(132px + env(safe-area-inset-bottom));font-size:11px}
-  .tweap{width:56px;height:56px;right:calc(48px + env(safe-area-inset-right));bottom:calc(184px + env(safe-area-inset-bottom));font-size:22px}
+  .tjump{width:var(--J);height:var(--J);right:calc(var(--sr) + var(--F) + max(10px,2.4vw));bottom:var(--sb);font-size:clamp(11px,3vh,13px)}
+  .tcrouch{width:var(--D);height:var(--D);right:calc(var(--sr) + var(--F) + max(10px,2.4vw) + (var(--J) - var(--D)) / 2);bottom:calc(var(--sb) + var(--J) + max(8px,2.5vh));font-size:clamp(9px,2.6vh,11px)}
+  .tweap{width:var(--D);height:var(--D);right:calc(var(--sr) + (var(--F) - var(--D)) / 2);bottom:calc(var(--sb) + var(--J) * 0.55 + var(--F) + max(8px,2.5vh));font-size:clamp(17px,5vh,22px)}
   .tpause{width:44px;height:44px;left:50%;top:calc(6px + env(safe-area-inset-top));margin-left:-22px;font-size:12px;letter-spacing:0}
   body.touch .tonly{display:block}
   body.touch .monly{display:none}
@@ -92,17 +102,21 @@
   body.touch #speed{display:none}
   body.touch #cross{--l:11px;--t:3px}
   body.touch #hit{transform:rotate(45deg) scale(calc(var(--hs) * 1.25))}
-  body.touch #feed{top:calc(86px + env(safe-area-inset-top));right:calc(16px + env(safe-area-inset-right))}
-  body.touch .kf{font-size:12px;padding:3px 8px}
+  body.touch #feed{top:calc(36px + env(safe-area-inset-top));right:calc(12px + env(safe-area-inset-right));max-width:min(46vw,calc(50vw - 135px))}
+  body.touch .kf b{max-width:9ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+  body.touch #feed .kf:nth-child(n+4){display:none}
+  body.touch .kf{font-size:clamp(10px,2.9vh,12px);padding:2px 7px;gap:6px}
+  body.touch .kf i{font-size:9px;padding:0 4px}
   body.touch .dmg{font-size:17px}
-  body.touch .stat{font-size:34px;bottom:auto;top:calc(48px + env(safe-area-inset-top))}
+  body.touch .stat{font-size:clamp(24px,8.5vh,34px);bottom:auto;top:calc(clamp(30px,11vh,48px) + env(safe-area-inset-top))}
   body.touch .stat small{font-size:10px;letter-spacing:2px}
   body.touch #hp{left:calc(20px + env(safe-area-inset-left))}
   body.touch #ar{left:calc(110px + env(safe-area-inset-left))}
   body.touch #frags{font-size:16px;top:calc(12px + env(safe-area-inset-top));left:calc(20px + env(safe-area-inset-left))}
   body.touch #net{font-size:12px;top:calc(10px + env(safe-area-inset-top));right:calc(16px + env(safe-area-inset-right))}
   body.touch #wbar{z-index:6;pointer-events:auto;gap:4px;bottom:calc(4px + env(safe-area-inset-bottom))}
-  body.touch .wslot{min-width:40px;font-size:8px;letter-spacing:0}
+  body.touch .wslot{min-width:clamp(32px,5vw,42px);font-size:7px;letter-spacing:0;padding:2px 3px !important}
   body.touch .wslot b{font-size:15px}
   body.touch .wslot i{font-size:10px;min-height:11px}
   body.touch .wslot:not(.own){display:none}
@@ -111,6 +125,16 @@
   #rotate b{font-size:56px;display:block;margin-bottom:12px;animation:rot 1.6s ease-in-out infinite}
   @keyframes rot{0%,30%{transform:rotate(0)}60%,100%{transform:rotate(90deg)}}
   @media (orientation:portrait){body.touch #rotate{display:flex}}
+  /* narrow phones: the weapon bar moves to the top centre, out of the thumbs' way (kept last so it wins) */
+  @media (max-width:720px){
+    body.touch #wbar{bottom:auto !important;top:calc(78px + env(safe-area-inset-top))}
+    body.touch .wslot{min-width:30px;font-size:0 !important}            /* number + ammo only, no weapon name */
+    body.touch .wslot b{font-size:14px} body.touch .wslot i{font-size:9px}
+    body.touch #matchbar{font-size:10px}
+    body.touch .kf{gap:4px;padding:2px 6px}
+    body.touch .kf i{font-size:0;width:8px;height:8px;padding:0;border-radius:50%;background:var(--w);border:0}   /* weapon = coloured dot */
+    body.touch .kf b{max-width:7ch}
+  }
 </style>
 </head>
 <body>
@@ -123,6 +147,8 @@
   <div id="frags">FRAGS 0</div>
   <div id="hit"><i></i><i></i><i></i><i></i></div>
   <div id="feed"></div>
+  <div id="boosts"></div>
+  <div id="aura"></div>
   <div class="stat" id="hp">100<small>HEALTH</small></div>
   <div class="stat" id="ar">0<small>ARMOR</small></div>
   <div id="wbar"></div>

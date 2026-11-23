@@ -41,6 +41,8 @@ export interface LobbyView {
 const MAPS: { id: string; name: string; desc: string }[] = [
   { id: 'boreal', name: 'IRON CRADLE', desc: 'Floating fortress islands, jump pads, one high tower' },
   { id: 'void', name: 'DEEP VOID', desc: 'Same arena, darker sky, nothing between you and the stars' },
+  { id: 'spire', name: 'SPIRE RING', desc: 'Hub, bridges, high perches, 6 teleporters, boosters, OVERDRIVE on the spire' },
+  { id: 'bastion', name: 'TWIN BASTIONS', desc: 'Two fortresses, sky bridges, cross-map teleporters, boosters' },
 ];
 const SKILLS = ['EASY', 'NORMAL', 'HARD'];
 const FRAGS = [0, 10, 20, 30, 50];

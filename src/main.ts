@@ -9,7 +9,8 @@ import { Arena } from './arena';
 import { kitOptions } from './kit';
 import { getQuality } from './quality';
 import { Player, PM, Input } from './player';
-import { boxes } from './level';
+import { boxes, MAP_ID, BoosterId, pads as levelPads, teleporters as levelTeleporters } from './level';
+import { BOOSTERS } from './pickups';
 import { Viewmodel } from './viewmodel';
 import { Loadout } from './loadout';
 import { Combat, Target, rayWorld } from './combat';
@@ -26,8 +27,8 @@ import { Gyro } from './gyro';
 import { WeaponId } from './weapons';
 
 const Q = getQuality();
-const MAP = new URLSearchParams(location.search).get('map') === 'void' ? 'void' : 'boreal';
-const SKYP = SKY_PRESETS[MAP];
+const MAP = MAP_ID;
+const SKYP = SKY_PRESETS[MAP === 'void' ? 'void' : 'boreal'];
 // default look: dark alien fortress (original procedural textures). ?style=kit = the older bright sci-fi kit
 const STYLE = new URLSearchParams(location.search).get('style') === 'kit' ? 'kit' : 'alien';
 kitOptions.cheap = !Q.pbr;
@@ -53,7 +54,7 @@ const camera = new THREE.PerspectiveCamera(100, innerWidth / innerHeight, 0.05, 
 camera.rotation.order = 'YXZ';
 
 // sky: live shader on high, baked once to a cubemap on low/med (no per-frame noise cost)
-const sky = new Sky(MAP);
+const sky = new Sky(MAP === 'void' ? 'void' : 'boreal');
 // default sky: pure black + crisp stars (cheap, sharp on any screen). ?sky=nebula brings back the painted space sky.
 const PLAIN_SKY = new URLSearchParams(location.search).get('sky') !== 'nebula';
 if (PLAIN_SKY) {
@@ -409,7 +410,7 @@ const net = new Net({
   state(id, m) { remotes.get(id)?.setState(m.p, m.yaw, m.w, m.hp, !!m.dead); },
   fire(id, m) {
     const r = remotes.get(id); r?.flashFire(); const o = dirV(m.o);
-    combat.remoteShot(m.w, o, dirV(m.d), String(id)); sfx.shot(m.w, Math.min(0.85, 10 / (o.distanceTo(camera.position) + 4)));
+    combat.remoteShot(m.w, o, dirV(m.d), String(id), Number(m.k) || 1); sfx.shot(m.w, Math.min(0.85, 10 / (o.distanceTo(camera.position) + 4)));
   },
   hit(from, dmg, dir, kind) { blame(String(from), (kind in WEAPON_DEFS ? kind : 'pistol') as WeaponId); const d = dirV(dir); player.knock(d.x * 1.5, 0.3, d.z * 1.5); sfx.hurt(); if (player.takeDamage(dmg)) die('DIED'); },
   killed(id, by, b, w) {
@@ -509,7 +510,7 @@ function die(why: string) {
   }
   killer.who = ''; sfx.died(); refreshFrags();
   say(why === 'EXPLODED' ? 'YOU BLEW UP' : why === 'FELL' ? 'YOU FELL' : 'YOU DIED'); player.respawn(); yaw = player.yaw; pitch = 0;
-  loadout.reset(); vm.show('pistol'); lastBar = '';
+  loadout.reset(); vm.show('pistol'); lastBar = ''; clearBoosters();
 }
 player.onVoid = () => die('FELL');
 
@@ -564,6 +565,38 @@ function feed(killerName: string, weapon: WeaponId | '', victim: string, meKille
 
 // ---- HUD ----
 let shownPadTime = 0;
+// ---- boosters (power-ups) ----
+const boost: Record<'haste' | 'overdrive' | 'regen' | 'jump', number> = { haste: 0, overdrive: 0, regen: 0, jump: 0 };
+const boostEl = document.getElementById('boosts')!, auraEl = document.getElementById('aura')!;
+function grantBooster(id: BoosterId) {
+  const b = BOOSTERS[id]; sfx.powerup(); say(b.name);
+  if (id === 'mega') player.health = Math.min(200, player.health + 100);
+  else if (id === 'shield') player.armor = Math.min(200, player.armor + 100);
+  else boost[id] = b.secs;
+}
+function clearBoosters() { boost.haste = boost.overdrive = boost.regen = boost.jump = 0; }
+let boostHtml = '', decayAcc = 0;
+function boosterTick(dt: number) {
+  for (const k of Object.keys(boost) as (keyof typeof boost)[]) if (boost[k] > 0) { boost[k] = Math.max(0, boost[k] - dt); if (boost[k] === 0) say(`${BOOSTERS[k].name} WORE OFF`); }
+  player.speedMul = boost.haste > 0 ? 1.35 : 1; player.jumpMul = boost.jump > 0 ? 1.45 : 1; combat.dmgMul = boost.overdrive > 0 ? 2 : 1;
+  if (boost.regen > 0 && player.health < 150) player.health = Math.min(150, player.health + 8 * dt);
+  // MEGA HEALTH / HEAVY ARMOR above 100 drain back down, one point per second
+  decayAcc += dt; if (decayAcc >= 1) { decayAcc -= 1; if (player.health > 100 && boost.regen <= 0) player.health -= 1; if (player.armor > 100) player.armor -= 1; }
+  const html = (Object.keys(boost) as (keyof typeof boost)[]).filter(k => boost[k] > 0)
+    .map(k => `<div class="bst" style="--c:#${BOOSTERS[k].color.toString(16).padStart(6, '0')}"><b>${BOOSTERS[k].name}</b><i>${Math.ceil(boost[k])}</i></div>`).join('');
+  if (html !== boostHtml) { boostHtml = html; boostEl.innerHTML = html; }
+  const aura = boost.overdrive > 0 ? 'od' : boost.haste > 0 ? 'hs' : '';
+  if (auraEl.dataset.k !== aura) { auraEl.dataset.k = aura; auraEl.className = aura; }
+  // teleporters: turn the view to the exit direction, flash and burst at both ends
+  if (player.teleported) {
+    const t = player.teleported; player.teleported = null;
+    yaw = t.yaw; combat.teleportFx(new THREE.Vector3(...t.from)); combat.teleportFx(new THREE.Vector3(...t.to)); sfx.teleport();
+    tpFlash = 0.35;
+  }
+  if (tpFlash > 0) { tpFlash = Math.max(0, tpFlash - dt); tpEl.style.opacity = String(tpFlash * 2.2); }
+}
+let tpFlash = 0; const tpEl = document.createElement('div'); tpEl.style.cssText = 'position:fixed;inset:0;pointer-events:none;background:radial-gradient(circle,#e8d8ff,#7a3aff88 60%,transparent);opacity:0;z-index:3'; document.body.appendChild(tpEl);
+
 function hud() {
   speedEl.firstChild!.textContent = String(Math.round(player.speedXZ * 32));
   speedEl.style.color = player.speedXZ > 15 ? '#ff9a3c' : player.speedXZ > 11 ? '#ffe14a' : '#7ffff0';
@@ -592,7 +625,7 @@ function doFire(id: Parameters<typeof combat.fire>[0]) {
   camera.updateMatrixWorld(true);
   const muzzle = camera.localToWorld(vm.muzzleCamSpace());
   combat.fire(id, _eye, _dir, muzzle);
-  if (net.online) { const w = rayWorld(_eye, _dir, 200); const aim = _eye.clone().addScaledVector(_dir, w ? w.t : 200); const dd = aim.sub(muzzle).normalize(); net.send({ t: 'fire', w: id, o: [muzzle.x, muzzle.y, muzzle.z], d: [dd.x, dd.y, dd.z] }); }
+  if (net.online) { const w = rayWorld(_eye, _dir, 200); const aim = _eye.clone().addScaledVector(_dir, w ? w.t : 200); const dd = aim.sub(muzzle).normalize(); net.send({ t: 'fire', w: id, o: [muzzle.x, muzzle.y, muzzle.z], d: [dd.x, dd.y, dd.z], k: combat.dmgMul }); }
   vm.fire(id); crossKick = 1; sfx.shot(id);
 }
 
@@ -628,10 +661,11 @@ function frame(now: number) {
   camera.rotation.set(pitch + (Math.random() - .5) * sh * 0.02, yaw, 0);
   player.hurtT = Math.max(0, player.hurtT - frameMs / 1000);
   tryFire(Math.min(0.05, frameMs / 1000));
-  for (const got of frozen ? [] : pickupSys.update(now / 1000, player, d => d.kind === 'weapon' ? loadout.wouldAccept(d.id) : d.kind === 'health' ? player.health < 100 : player.armor < 100)) {
+  for (const got of frozen ? [] : pickupSys.update(now / 1000, player, d => d.kind === 'weapon' ? loadout.wouldAccept(d.id) : d.kind === 'booster' ? (d.id === 'mega' ? player.health < 200 : d.id === 'shield' ? player.armor < 200 : true) : d.kind === 'health' ? player.health < 100 : player.armor < 100)) {
     sfx.pickup();
     if (got.kind === 'weapon') { const r = loadout.give(got.id); say(r === 'new' ? `${WEAPON_DEFS[got.id].name} ACQUIRED` : `+${WEAPON_DEFS[got.id].stats.ammoPickup} ${WEAPON_DEFS[got.id].name} AMMO`); if (r === 'new') vm.select(got.id); }
     else if (got.kind === 'health') { player.health = Math.min(100, player.health + got.amount); say(`+${got.amount} HEALTH`); }
+    else if (got.kind === 'booster') { grantBooster(got.id); }
     else { player.armor = Math.min(100, player.armor + got.amount); say(`+${got.amount} ARMOR`); }
   }
   { botCtxPlayer.pos.set(player.x, player.y, player.z); botCtxPlayer.eye.set(player.x, player.y + player.eye, player.z);
@@ -649,7 +683,7 @@ function frame(now: number) {
     if (Math.abs(gap - crossGap) > 0.25) { crossGap += (gap - crossGap) * Math.min(1, bdt * 18); crossEl.style.setProperty('--g', `${crossGap.toFixed(1)}px`); }
     crossEl.classList.toggle('dry', !loadout.canFire(vm.current));
     net.sendState(bdt, { p: [player.x, player.y, player.z], yaw, pitch, w: vm.current, hp: player.health, dead: false });
-    netTick(bdt); matchTick(bdt); }
+    netTick(bdt); matchTick(bdt); if (!frozen) boosterTick(bdt); }
   combat.setViewHeight(renderer.domElement.height);
   if (!(window as any).__freeze && !frozen) combat.update(Math.min(0.05, frameMs / 1000));
   stars.update(camera, renderer.getPixelRatio());
@@ -666,4 +700,4 @@ function frame(now: number) {
 requestAnimationFrame(frame);
 
 // dev/test hook
-(window as any).__game = { bots, net, remotes, menu, get mode() { return mode; }, get matchState() { return matchState; }, scores: () => board(), doFire, player, camera, vm, loadout, combat, pickupSys, targets, say, die, renderer, world, Q, get scale() { return renderScale; }, setLook: (y: number, p: number) => { yaw = y; pitch = p; }, PM };
+(window as any).__game = { bots, net, remotes, menu, stars, scene, grantBooster, boost, level: { pads: levelPads, teleporters: levelTeleporters }, get mode() { return mode; }, get matchState() { return matchState; }, scores: () => board(), doFire, player, camera, vm, loadout, combat, pickupSys, targets, say, die, renderer, world, Q, get scale() { return renderScale; }, setLook: (y: number, p: number) => { yaw = y; pitch = p; }, PM };

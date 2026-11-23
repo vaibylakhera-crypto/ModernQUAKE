@@ -54,7 +54,7 @@ const server = http.createServer((req, res) => {
 //  state: 'lobby' (warmup, scores not counted) -> 'playing' (host pressed START) -> 'ended' (results) -> back to 'lobby'
 const rooms = new Map();
 let nextId = 1, nextBot = 1000;
-const MAPS = new Set(['boreal', 'void']);
+const MAPS = new Set(['boreal', 'void', 'spire', 'bastion']);
 const BOT_POOL = [
   { name: 'RAZOR', weapon: 'plasma' }, { name: 'VEX', weapon: 'plasma' }, { name: 'KRAIT', weapon: 'rocket' }, { name: 'NYX', weapon: 'nailer' },
   { name: 'ONYX', weapon: 'plasma' }, { name: 'HEX', weapon: 'rocket' }, { name: 'MORROW', weapon: 'nailer' }, { name: 'ZOLA', weapon: 'plasma' },
@@ -139,7 +139,7 @@ wss.on('connection', (ws, req) => {
       case 'fire': {
         const as = Number(m.as);                                   // the host fires on behalf of its bots
         const shooter = as && isHost() && room.bots.has(as) ? as : id;
-        bcast(room, { t: 'fire', id: shooter, w: m.w, o: m.o, d: m.d }, id); break;
+        bcast(room, { t: 'fire', id: shooter, w: m.w, o: m.o, d: m.d, k: Math.min(2, Math.max(1, Number(m.k) || 1)) }, id); break;
       }
       case 'hit': {
         const to = Number(m.to), dmg = Math.min(150, Number(m.dmg) || 0);

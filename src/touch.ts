@@ -53,7 +53,7 @@ export class TouchControls {
   /** park the stick in the bottom-left corner (always visible) */
   private home() {
     this.base.classList.remove('active'); this.knob.style.transform = 'translate(-50%,-50%)';
-    this.base.style.left = 'calc(110px + env(safe-area-inset-left))'; this.base.style.top = 'calc(100% - 110px - env(safe-area-inset-bottom))';
+    this.base.style.left = 'calc(max(84px, 9vw + 40px) + env(safe-area-inset-left))'; this.base.style.top = 'calc(100% - clamp(78px, 27vh, 118px) - env(safe-area-inset-bottom))';
   }
 
   private start(e: TouchEvent) {

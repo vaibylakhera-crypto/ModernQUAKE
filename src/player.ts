@@ -1,5 +1,5 @@
 // Quake-style player movement. Deterministic fixed-step, no three.js dependency (shareable with the server).
-import { Box, GRAVITY, BOUNCE_VY, pads, jumpPadVelocity, spawns } from './level';
+import { Box, GRAVITY, BOUNCE_VY, pads, jumpPadVelocity, spawns, teleporters } from './level';
 
 export const PM = {
   runSpeed: 10,        // m/s  (~320 u/s)
@@ -36,6 +36,11 @@ export class Player {
   health = 100; armor = 0;
   onVoid?: () => void;
   hurtT = 0;
+  /** booster multipliers (HASTE / HIGH JUMP), set by the game each frame */
+  speedMul = 1; jumpMul = 1;
+  /** set when a teleporter fires: the game turns the view to `yaw` and plays the effect */
+  teleported: { yaw: number; from: [number, number, number]; to: [number, number, number] } | null = null;
+  private tpCooldown = 0;
 
   constructor(private boxes: Box[]) { this.respawn(); }
 
@@ -92,13 +97,13 @@ export class Player {
     let wz = -cos * inp.forward - sin * inp.side;
     let wlen = Math.hypot(wx, wz);
     if (wlen > 0) { wx /= wlen; wz /= wlen; }
-    let wishSpeed = wlen > 0 ? PM.runSpeed * Math.min(1, wlen) : 0;
+    let wishSpeed = wlen > 0 ? PM.runSpeed * this.speedMul * Math.min(1, wlen) : 0;
     if (this.crouched) wishSpeed *= PM.crouchScale;
 
     // jump: needs a fresh press (buffered). Jumping skips ground friction -> bunny hop keeps speed.
     let jumped = false;
     if (this.grounded && this.jumpBuf > 0) {
-      this.vy = PM.jumpV; this.grounded = false; this.jumpBuf = 0; jumped = true;
+      this.vy = PM.jumpV * this.jumpMul; this.grounded = false; this.jumpBuf = 0; jumped = true;
     }
 
     if (this.grounded && !jumped) {
@@ -122,6 +127,7 @@ export class Player {
 
     this.move(dt);
     this.checkPads(dt);
+    this.checkTeleporters(dt);
     if (this.y < PM.voidY) { if (this.onVoid) this.onVoid(); else this.respawn(); }
   }
 
@@ -147,6 +153,23 @@ export class Player {
       if (this.grounded) this.vy = 0;
     } else this.grounded = false;
     if (this.vy > 0.1) this.grounded = false;
+  }
+
+  private checkTeleporters(dt: number) {
+    this.tpCooldown = Math.max(0, this.tpCooldown - dt);
+    if (this.tpCooldown > 0) return;
+    for (const t of teleporters) {
+      const dx = this.x - t.pos[0], dz = this.z - t.pos[2], dy = this.y - t.pos[1];
+      if (dx * dx + dz * dz > 1.15 * 1.15 || dy < -0.3 || dy > 1.4) continue;
+      // come out facing the gate's direction, keeping horizontal speed (teleport mid-run)
+      const sp = Math.hypot(this.vx, this.vz), s = Math.sin(t.yaw), c = Math.cos(t.yaw);
+      const from: [number, number, number] = [this.x, this.y, this.z];
+      this.x = t.dest[0]; this.y = t.dest[1] + 0.05; this.z = t.dest[2];
+      this.vx = -s * sp; this.vz = -c * sp; this.vy = Math.max(0, this.vy);
+      this.grounded = false; this.tpCooldown = 0.8; this.yaw = t.yaw;
+      this.teleported = { yaw: t.yaw, from, to: [t.dest[0], t.dest[1], t.dest[2]] };
+      return;
+    }
   }
 
   private checkPads(dt: number) {

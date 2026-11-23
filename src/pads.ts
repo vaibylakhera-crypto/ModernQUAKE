@@ -136,3 +136,38 @@ export function columnMesh(color: THREE.Color, H: number, r = 1.0): THREE.Mesh {
   }));
   m.renderOrder = 3; return m;
 }
+
+// ───────────── teleporter gates ─────────────
+// A ringed base with a swirling vortex floor and two counter-rotating halo rings floating above it.
+const TP_COLOR = new THREE.Color(0xa86bff);
+const vortexFrag = /* glsl */ `
+precision mediump float;
+uniform float uTime; uniform vec3 uColor; varying vec2 vP;
+void main(){
+  float r = length(vP) / 1.3; if (r > 1.0) discard;
+  float a = atan(vP.y, vP.x);
+  float swirl = sin(a * 3.0 + r * 9.0 - uTime * 4.0) * 0.5 + 0.5;
+  float core = smoothstep(0.55, 0.0, r);
+  float edge = smoothstep(1.0, 0.85, r);
+  vec3 c = mix(uColor * 0.6, vec3(1.0, 0.92, 1.0), core * 0.8);
+  gl_FragColor = vec4(c * (0.4 + swirl * 1.4 + core * 1.5), edge * (0.55 + swirl * 0.35));
+}`;
+const vortexGeo = new THREE.CircleGeometry(1.3, 40).rotateX(-Math.PI / 2).translate(0, 0.09, 0);
+const tpRingMat = new THREE.MeshBasicMaterial({ color: TP_COLOR.clone().multiplyScalar(1.7) });
+export const teleTime = { value: 0 };
+export function buildTeleporter(pos: [number, number, number], dest: [number, number, number]): { gate: THREE.Group; exit: THREE.Group; spin: THREE.Object3D[] } {
+  const gate = new THREE.Group(); gate.position.set(pos[0], pos[1] + 0.012, pos[2]);
+  gate.add(new THREE.Mesh(housing, housingMat));
+  gate.add(new THREE.Mesh(trimGeo, tpRingMat));
+  gate.add(new THREE.Mesh(vortexGeo, new THREE.ShaderMaterial({ vertexShader: plateVert, fragmentShader: vortexFrag, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, uniforms: { uTime: teleTime, uColor: { value: TP_COLOR } } })));
+  const spin: THREE.Object3D[] = [];
+  for (let i = 0; i < 2; i++) {
+    const halo = new THREE.Mesh(new THREE.TorusGeometry(1.05 - i * 0.18, 0.045, 6, 40), tpRingMat);
+    halo.position.y = 1.3 + i * 0.5; halo.rotation.x = Math.PI / 2; gate.add(halo); spin.push(halo);
+  }
+  const col = columnMesh(TP_COLOR, 2.6, 1.1); col.position.y = 0.1; gate.add(col);
+  // faint marker where you arrive
+  const exit = new THREE.Group(); exit.position.set(dest[0], dest[1] + 0.03, dest[2]);
+  exit.add(new THREE.Mesh(new THREE.RingGeometry(0.7, 0.85, 32).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: TP_COLOR, transparent: true, opacity: 0.45, blending: THREE.AdditiveBlending, depthWrite: false })));
+  return { gate, exit, spin };
+}

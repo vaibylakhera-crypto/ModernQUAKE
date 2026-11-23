@@ -219,7 +219,7 @@ export class Stars {
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('aCol', new THREE.BufferAttribute(col, 3)); g.setAttribute('aSize', new THREE.BufferAttribute(size, 1));
     const m = new THREE.ShaderMaterial({
-      transparent: true, depthWrite: false, depthTest: true, blending: THREE.AdditiveBlending, uniforms: { uPx: { value: 1 } },
+      transparent: false, depthWrite: false, depthTest: true, blending: THREE.AdditiveBlending, uniforms: { uPx: { value: 1 } },
       vertexShader: `attribute vec3 aCol; attribute float aSize; uniform float uPx; varying vec3 vC;
         void main(){ vC = aCol; gl_PointSize = aSize * uPx; vec4 p = projectionMatrix * modelViewMatrix * vec4(position, 1.0); gl_Position = p; gl_Position.z = gl_Position.w; }`,
       fragmentShader: `precision mediump float; varying vec3 vC;

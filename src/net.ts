@@ -41,6 +41,7 @@ export class RemotePlayer implements Target {
   }
   setState(p: number[], yawPlayer: number, w: WeaponId, hp: number, dead: boolean) {
     this.tPos.set(p[0], p[1], p[2]); this.tYaw = yawPlayer + Math.PI; this.hp = hp; this.alive = !dead; this.setWeapon(w);
+    if (this.pos.distanceToSquared(this.tPos) > 36) this.pos.copy(this.tPos);   // teleported / respawned: snap, don't slide across the map
     if (this.first) { this.pos.copy(this.tPos); this.yaw = this.tYaw; this.first = false; }
   }
   flashFire() { this.fireK = 1; }

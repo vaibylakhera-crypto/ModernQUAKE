@@ -35,3 +35,12 @@ Open the hosted URL (e.g. your Render link) on the phone, then:
 
 Launching from the icon opens it fullscreen like an app. Everyone uses the same room code to play together.
 Test touch controls on desktop with `?touch=1`. The default look is the dark alien-fortress arena (`?style=kit` = the older bright sci-fi kit). The default sky is black with stars; `?sky=nebula` brings back the painted space sky.
+
+## Maps
+- **Iron Cradle / Deep Void** - the original arena.
+- **Spire Ring** - hub, bridges, raised decks, four high perches, a floating spire; 6 teleporters and boosters.
+- **Twin Bastions** - two fortress bases, sky bridges, a sunken island; cross-map teleporters and boosters.
+
+Boosters (new maps only): HASTE, OVERDRIVE (2x damage), REGEN, HIGH JUMP (20 s each), MEGA HEALTH and HEAVY ARMOR
+(up to 200, draining back to 100). Teleporters keep your speed. Map data lives in `src/level.ts`.
+

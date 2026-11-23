@@ -3,7 +3,7 @@ import { buildFighter, Dressed } from './dress';
 import { animate, holdWeapon, AnimState } from './anim';
 import { Target, rayWorld } from './combat';
 import { WeaponId } from './weapons';
-import { boxes } from './level';
+import { boxes, botZones, BotZone } from './level';
 
 // Arena bot: runs and strafes on the central platform, tracks the player, fires visible projectiles, dies and respawns.
 
@@ -32,8 +32,8 @@ const BOT_GUN: Partial<Record<WeaponId, { dmg: number; cd: number; jitter: numbe
   nailer: { dmg: 7, cd: 0.13, jitter: 0.06, speed: 40 },
 };
 
-const ARENA = 13.2;
-const SPAWNS: [number, number][] = [[-12, -12], [12, -12], [-12, 12], [12, 12], [0, -13], [0, 13], [-13, 0], [13, 0]];
+// each bot roams one flat zone of the map (picked from its name, so bots spread over the zones)
+const zoneFor = (name: string): BotZone => botZones[[...name].reduce((a, c) => a + c.charCodeAt(0), 0) % botZones.length];
 
 function nameSprite(text: string, color: number): THREE.Sprite {
   const c = document.createElement('canvas'); c.width = 256; c.height = 64; const x = c.getContext('2d')!;
@@ -52,9 +52,10 @@ export class Bot implements Target {
   netId = 0;
   skill = 1;
   private lastBy = ''; private lastW = '';
+  private zone: BotZone;
 
   constructor(public name: string, private rigP: Dressed, weapon: WeaponId, private ctx: BotCtx, private color: number) {
-    this.id = name; this.weapon = weapon; this.rig = rigP;
+    this.id = name; this.weapon = weapon; this.rig = rigP; this.zone = zoneFor(name);
     animate(rigP, { t: 0, speed: 0, dead: 0, look: 0, pain: 0, fire: 0 });   // pose FIRST so the gun is aligned to the posed hand
     const g = holdWeapon(rigP, weapon); this.muzzle = (g as any).userData.muzzle;
     const label = nameSprite(name, color); label.position.set(0, 2.25, 0); rigP.root.add(label);
@@ -64,9 +65,12 @@ export class Bot implements Target {
   get root() { return this.rig.root; }
 
   respawn(far?: THREE.Vector3) {
-    let best = SPAWNS[0], bd = -1;
-    for (const s of SPAWNS) { const d = far ? Math.hypot(s[0] - far.x, s[1] - far.z) + Math.random() * 6 : Math.random(); if (d > bd) { bd = d; best = s; } }
-    this.pos.set(best[0], 0, best[1]); this.vel.set(0, 0, 0); this.health = 100; this.alive = true; this.fall = 0; this.deadT = 0; this.destT = 0; this.cooldown = 1.2;
+    const Z = this.zone; let best: [number, number] = [Z.x0, Z.z0], bd = -1;
+    for (let i = 0; i < 8; i++) {
+      const s: [number, number] = [Z.x0 + 0.8 + Math.random() * (Z.x1 - Z.x0 - 1.6), Z.z0 + 0.8 + Math.random() * (Z.z1 - Z.z0 - 1.6)];
+      const d = far ? Math.hypot(s[0] - far.x, s[1] - far.z) + Math.random() * 6 : Math.random(); if (d > bd) { bd = d; best = s; }
+    }
+    this.pos.set(best[0], Z.y, best[1]); this.vel.set(0, 0, 0); this.health = 100; this.alive = true; this.fall = 0; this.deadT = 0; this.destT = 0; this.cooldown = 1.2;
     this.root.visible = true; this.apply(0, 0);
   }
 
@@ -84,11 +88,11 @@ export class Bot implements Target {
   private pickDest() {
     const p = this.ctx.player.pos;
     for (let i = 0; i < 8; i++) {
-      const x = (Math.random() * 2 - 1) * ARENA, z = (Math.random() * 2 - 1) * ARENA;
+      const Z = this.zone, x = Z.x0 + Math.random() * (Z.x1 - Z.x0), z = Z.z0 + Math.random() * (Z.z1 - Z.z0);
       const dp = Math.hypot(x - p.x, z - p.z);
       if (dp > 5 && dp < 16) { this.dest.set(x, z); return; }
     }
-    this.dest.set((Math.random() * 2 - 1) * ARENA, (Math.random() * 2 - 1) * ARENA);
+    this.dest.set(this.zone.x0 + Math.random() * (this.zone.x1 - this.zone.x0), this.zone.z0 + Math.random() * (this.zone.z1 - this.zone.z0));
   }
 
   update(dt: number) {
@@ -106,9 +110,10 @@ export class Bot implements Target {
     const want = new THREE.Vector3(dx / dl, 0, dz / dl).multiplyScalar(6.2 * (this.pain > 0.5 ? 0.6 : 1));
     this.vel.lerp(want, Math.min(1, dt * 6));
     this.pos.addScaledVector(this.vel, dt);
-    this.pos.x = Math.max(-ARENA, Math.min(ARENA, this.pos.x)); this.pos.z = Math.max(-ARENA, Math.min(ARENA, this.pos.z));
-    for (const b of boxes) {                        // push out of cover (pillars, crate wall)
-      if (b.max[1] < 0.4 || b.min[1] > 2 || b.max[1] > 6 && b.min[1] > 0.5) continue;
+    const Z = this.zone;
+    this.pos.x = Math.max(Z.x0, Math.min(Z.x1, this.pos.x)); this.pos.z = Math.max(Z.z0, Math.min(Z.z1, this.pos.z)); this.pos.y = Z.y;
+    for (const b of boxes) {                        // push out of cover (pillars, low walls) standing on this floor
+      if (b.max[1] < Z.y + 0.4 || b.min[1] > Z.y + 2) continue;
       if (b.max[0] - b.min[0] > 20) continue;
       const m = 0.45;
       if (this.pos.x > b.min[0] - m && this.pos.x < b.max[0] + m && this.pos.z > b.min[2] - m && this.pos.z < b.max[2] + m) {
