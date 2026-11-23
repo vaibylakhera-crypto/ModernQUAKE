@@ -182,7 +182,7 @@ export class Player {
       if (p.kind === 'bounce') {
         this.vy = BOUNCE_VY[p.tier]; this.lastPad = `${p.tier.toUpperCase()} BOUNCE`;
       } else {
-        const v = jumpPadVelocity(p.pos, p.target);
+        const v = jumpPadVelocity([this.x, p.pos[1], this.z], p.target);
         this.vx = v[0]; this.vy = v[1]; this.vz = v[2]; this.lastPad = 'JUMP PAD';
       }
       this.grounded = false; this.padCooldown.set(i, 0.4); this.lastPadTime = performance.now();

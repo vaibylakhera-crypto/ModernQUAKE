@@ -80,7 +80,7 @@ const CRADLE: Omit<MapDef, 'id' | 'name' | 'desc'> = {
     { kind: 'jump', pos: [0, 0, 12.5], target: [0, 12, 40] }, { kind: 'jump', pos: [-12.5, 0, 0], target: [-40, 6, 0] },
     { kind: 'jump', pos: [0, 4, -44], target: [0, 20, -1] }, { kind: 'jump', pos: [44, 8, 0], target: [1, 20, 0] },
     { kind: 'jump', pos: [0, 12, 44], target: [0, 20, 1] }, { kind: 'jump', pos: [-44, 6, 0], target: [-1, 20, 0] },
-    { kind: 'jump', pos: [0, 20, 4], target: [0, 0, 8] },
+    { kind: 'jump', pos: [3.5, 20, 3.5], target: [6, 0, 14] },
     { kind: 'bounce', pos: [-6, 0, -6], tier: 'small' }, { kind: 'bounce', pos: [6, 0, 6], tier: 'medium' },
     { kind: 'bounce', pos: [-6, 0, 6], tier: 'mega' }, { kind: 'bounce', pos: [6, 0, -6], tier: 'small' },
   ],
@@ -207,7 +207,7 @@ const FOUNDRY: Omit<MapDef, 'id' | 'name' | 'desc'> = {
   spawns: [{ pos: [-16, 0, -10], yaw: -W }, { pos: [16, 0, 10], yaw: W }, { pos: [-16, 0, 10], yaw: -W }, { pos: [16, 0, -10], yaw: W }],
   pads: [
     { kind: 'jump', pos: [-12, 0, -8], target: [-12, 5, -13.5] }, { kind: 'jump', pos: [12, 0, 8], target: [12, 5, 13.5] },
-    { kind: 'jump', pos: [-16, 0, 6], target: [-17.5, 5, 8] }, { kind: 'jump', pos: [16, 0, -6], target: [17.5, 5, -8] },
+    { kind: 'jump', pos: [-12.5, 0, 4.5], target: [-17, 5, 4.5] }, { kind: 'jump', pos: [12.5, 0, -4.5], target: [17, 5, -4.5] },
     { kind: 'bounce', pos: [-10, 0, 0], tier: 'medium' }, { kind: 'bounce', pos: [10, 0, 0], tier: 'medium' },
   ],
   teleporters: [
@@ -247,8 +247,8 @@ const CRYPT: Omit<MapDef, 'id' | 'name' | 'desc'> = {
   ],
   spawns: [{ pos: [-27, 0, -6], yaw: -W }, { pos: [27, 0, 6], yaw: W }, { pos: [-27, 0, 6], yaw: -W }, { pos: [27, 0, -6], yaw: W }],
   pads: [
-    { kind: 'jump', pos: [-26, 0, -9], target: [-26, 6, -11.5] }, { kind: 'jump', pos: [26, 0, 9], target: [26, 6, 11.5] },
-    { kind: 'jump', pos: [0, 0, -8], target: [0, 6, -11.5] }, { kind: 'jump', pos: [0, 0, 8], target: [0, 6, 11.5] },
+    { kind: 'jump', pos: [-26, 0, -5], target: [-26, 6, -11.5] }, { kind: 'jump', pos: [26, 0, 5], target: [26, 6, 11.5] },
+    { kind: 'jump', pos: [3, 0, -5], target: [3, 6, -11.5] }, { kind: 'jump', pos: [-3, 0, 5], target: [-3, 6, 11.5] },
     { kind: 'bounce', pos: [-15, 0, 0], tier: 'small' }, { kind: 'bounce', pos: [15, 0, 0], tier: 'small' },
   ],
   teleporters: [
@@ -293,7 +293,7 @@ const TOWER: Omit<MapDef, 'id' | 'name' | 'desc'> = {
   ],
   spawns: [{ pos: [-16, 0, -9], yaw: -W }, { pos: [16, 0, 9], yaw: W }, { pos: [-16, 0, 9], yaw: -W }, { pos: [16, 0, -9], yaw: W }],
   pads: [
-    { kind: 'jump', pos: [-18, 6, 8], target: [-18, 12, 4] }, { kind: 'jump', pos: [18, 6, -8], target: [18, 12, -4] },
+    { kind: 'jump', pos: [-12.5, 6, 5], target: [-18, 12, 5] }, { kind: 'jump', pos: [12.5, 6, -5], target: [18, 12, -5] },
     { kind: 'jump', pos: [-12, 6, 0], target: [-12, 12, 12] }, { kind: 'jump', pos: [12, 6, 0], target: [12, 12, -12] },
     { kind: 'bounce', pos: [-12, 0, 8], tier: 'medium' }, { kind: 'bounce', pos: [12, 0, -8], tier: 'medium' },
   ],
@@ -334,7 +334,7 @@ const RING: Omit<MapDef, 'id' | 'name' | 'desc'> = {
   pads: [
     { kind: 'jump', pos: [0, 0, -26], target: [0, 10, -3] }, { kind: 'jump', pos: [0, 0, 26], target: [0, 10, 3] },
     { kind: 'jump', pos: [-26, 0, 0], target: [-3, 10, 0] }, { kind: 'jump', pos: [26, 0, 0], target: [3, 10, 0] },
-    { kind: 'jump', pos: [4.5, 10, 4.5], target: [0, 0, -27] },
+    { kind: 'jump', pos: [4.5, 10, 4.5], target: [0, 0, -31] },
     { kind: 'bounce', pos: [-20, 0, -30], tier: 'small' }, { kind: 'bounce', pos: [20, 0, 30], tier: 'small' },
   ],
   teleporters: [

@@ -252,7 +252,7 @@ export class Bot implements Target {
     // pads and teleporters work on bots exactly like on the player
     if (this.padCool <= 0) for (const p of pads) {
       if (Math.hypot(p.pos[0] - this.pos.x, p.pos[2] - this.pos.z) > 1.5 || Math.abs(p.pos[1] - this.pos.y) > 0.6) continue;
-      if (p.kind === 'bounce') { this.vy = BOUNCE_VY[p.tier]; const ax = this.pos.x - p.pos[0], az = this.pos.z - p.pos[2], al = Math.hypot(ax, az) || 1; this.vel.set((ax / al) * 3, 0, (az / al) * 3); } else { const v = jumpPadVelocity(p.pos, p.target); this.vel.set(v[0], 0, v[2]); this.vy = v[1]; }
+      if (p.kind === 'bounce') { this.vy = BOUNCE_VY[p.tier]; const ax = this.pos.x - p.pos[0], az = this.pos.z - p.pos[2], al = Math.hypot(ax, az) || 1; this.vel.set((ax / al) * 3, 0, (az / al) * 3); } else { const v = jumpPadVelocity([this.pos.x, p.pos[1], this.pos.z], p.target); this.vel.set(v[0], 0, v[2]); this.vy = v[1]; }
       this.grounded = false; this.padCool = 0.5; this.path = []; break;
     }
     if (this.tpCool <= 0) for (const t of teleporters) {
