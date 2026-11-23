@@ -9,7 +9,7 @@ import { boxes } from './level';
 
 export interface BotCtx {
   player: { pos: THREE.Vector3; eye: THREE.Vector3; vel: THREE.Vector3 };
-  fire(id: WeaponId, origin: THREE.Vector3, dir: THREE.Vector3, dmg: number, speedScale: number): void;
+  fire(id: WeaponId, origin: THREE.Vector3, dir: THREE.Vector3, dmg: number, speedScale: number, owner: string): void;
   onKilled(b: Bot): void;
   onHit(b: Bot, dmg: number): void;
 }
@@ -108,7 +108,7 @@ export class Bot implements Target {
         target.add(new THREE.Vector3((Math.random() - .5) * 1.4, (Math.random() - .5) * 0.8, (Math.random() - .5) * 1.4));
         this.root.updateMatrixWorld(true);
         const o = this.muzzle.getWorldPosition(new THREE.Vector3());
-        this.ctx.fire(this.weapon, o, target.sub(o).normalize(), rocket ? 70 : 11, 0.72);
+        this.ctx.fire(this.weapon, o, target.sub(o).normalize(), rocket ? 70 : 11, 0.72, this.name);
         this.cooldown = rocket ? 1.6 + Math.random() * 0.6 : 0.42 + Math.random() * 0.3; this.fireK = 1;
       } else this.cooldown = 0.2;
     }

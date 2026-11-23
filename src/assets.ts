@@ -5,7 +5,7 @@ import * as THREE from 'three';
 //  - unused PBR maps (normal / roughness / ORM) are swapped for a 1-pixel image when the materials never sample them.
 //  - LOW tier gets 1024px WebP copies of the colour textures (public/tex-lo, built by scripts/make-lo-textures.py).
 
-const PIXEL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mN4/5/hPwAHggJ/PchI7wAAAABJRU5ErkJggg==';
+const PIXEL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGNoaPgPAAODAgAApfuJAAAAAElFTkSuQmCC';
 const PBR_DATA = /_(Normal|ORM|Roughness|Metallic)[^/]*\.png$/i;
 const LO = new Set([
   'T_Decals', 'T_Eye_Brown', 'T_Hair_1_BaseColor', 'T_PaddedWall_BaseColor',

@@ -43,7 +43,20 @@
   #start p{opacity:.8;letter-spacing:2px;margin:6px 0}
   #frags{position:absolute;top:18px;left:24px;font-size:20px;font-weight:700;letter-spacing:3px;color:#ffd24a}
   /* hit marker: 4 diagonal ticks just outside the crosshair */
-  #hit{position:absolute;left:50%;top:50%;width:0;height:0;opacity:0;transform:rotate(45deg)}
+  #hit{--hs:1;position:absolute;left:50%;top:50%;width:0;height:0;opacity:0;transform:rotate(45deg) scale(var(--hs))}
+  #hit.kill i{background:#ff3a2a;box-shadow:0 0 0 1px rgba(0,0,0,.75),0 0 12px #ff2a1a}
+  #hit.kill{--hs:1.5 !important}
+  .dmg{position:absolute;left:0;top:0;opacity:0;font-weight:700;font-size:20px;color:#fff;letter-spacing:1px;text-shadow:0 0 2px #000,0 0 6px #000,0 0 10px #ff6a3a;will-change:transform,opacity}
+  .dmg.big{color:#ffd24a;font-size:26px}
+  #feed{position:absolute;top:120px;right:24px;display:flex;flex-direction:column;align-items:flex-end;gap:4px}
+  .kf{display:flex;align-items:center;gap:8px;padding:4px 10px;background:rgba(4,10,20,.62);border-right:3px solid #5ee7ff66;font-size:15px;font-weight:700;letter-spacing:1px;transition:opacity .5s,transform .5s;animation:kfin .25s ease-out}
+  .kf.mek{border-right-color:#ffd24a;background:rgba(40,30,4,.66)}
+  .kf.mev{border-right-color:#ff4a3a;background:rgba(40,6,6,.66)}
+  .kf b.k{color:#7ffff0} .kf b.v{color:#ffb0a8} .kf.mek b.k{color:#ffd24a}
+  .kf i{font-style:normal;font-size:11px;letter-spacing:2px;padding:1px 6px;border:1px solid var(--w);color:var(--w);border-radius:3px}
+  .kf span{font-size:11px;opacity:.7}
+  .kf.out{opacity:0;transform:translateX(20px)}
+  @keyframes kfin{from{opacity:0;transform:translateX(30px)}to{opacity:1;transform:none}}
   #hit i{position:absolute;background:#fff;box-shadow:0 0 0 1px rgba(0,0,0,.75),0 0 8px #ff4a3a;border-radius:1px}
   #hit i:nth-child(1){left:-1.5px;bottom:9px;width:3px;height:9px}
   #hit i:nth-child(2){left:-1.5px;top:9px;width:3px;height:9px}
@@ -83,7 +96,10 @@
   body.touch #medal{display:none}
   body.touch #speed{display:none}
   body.touch #cross{--l:11px;--t:3px}
-  body.touch #hit{transform:rotate(45deg) scale(1.25)}
+  body.touch #hit{transform:rotate(45deg) scale(calc(var(--hs) * 1.25))}
+  body.touch #feed{top:calc(86px + env(safe-area-inset-top));right:calc(16px + env(safe-area-inset-right))}
+  body.touch .kf{font-size:12px;padding:3px 8px}
+  body.touch .dmg{font-size:17px}
   body.touch .stat{font-size:34px;bottom:auto;top:calc(48px + env(safe-area-inset-top))}
   body.touch .stat small{font-size:10px;letter-spacing:2px}
   body.touch #hp{left:calc(20px + env(safe-area-inset-left))}
@@ -118,6 +134,7 @@
   <div id="msg"></div>
   <div id="frags">FRAGS 0</div>
   <div id="hit"><i></i><i></i><i></i><i></i></div>
+  <div id="feed"></div>
   <div class="stat" id="hp">100<small>HEALTH</small></div>
   <div class="stat" id="ar">0<small>ARMOR</small></div>
   <div id="wbar"></div>

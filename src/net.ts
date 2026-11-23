@@ -64,7 +64,7 @@ export interface NetEvents {
   join(p: PlayerInfo): void; leave(id: number): void;
   state(id: number, m: any): void; fire(id: number, m: any): void;
   hit(from: number, dmg: number, dir: number[], kind: string): void;
-  killed(id: number, by: number, board: PlayerInfo[]): void;
+  killed(id: number, by: number, board: PlayerInfo[], weapon?: string): void;
   status(s: 'connecting' | 'online' | 'offline' | 'full'): void;
 }
 
@@ -93,7 +93,7 @@ export class Net {
         case 'state': this.ev.state(m.id, m); break;
         case 'fire': this.ev.fire(m.id, m); break;
         case 'hit': this.ev.hit(m.from, m.dmg, m.dir, m.kind); break;
-        case 'killed': this.ev.killed(m.id, m.by, m.board); break;
+        case 'killed': this.ev.killed(m.id, m.by, m.board, typeof m.w === 'string' ? m.w : ''); break;
       }
     };
   }

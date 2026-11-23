@@ -19,6 +19,8 @@ import { Net, RemotePlayer, PlayerInfo } from './net';
 import { WEAPON_ORDER, WEAPON_DEFS } from './weapons';
 import { TouchControls, isTouch as touchDevice, goFullscreen } from './touch';
 import { setupAssets } from './assets';
+import * as sfx from './sfx';
+import { WeaponId } from './weapons';
 
 const Q = getQuality();
 const MAP = new URLSearchParams(location.search).get('map') === 'void' ? 'void' : 'boreal';
@@ -126,6 +128,7 @@ let touchPlaying = false;
 const locked = () => touchPlaying || document.pointerLockElement === renderer.domElement;
 let lockedAt = 0, lockExitAt = 0;
 function resume() {
+  sfx.unlock();                    // audio may only start from a user gesture (iOS)
   if (TOUCH) { goFullscreen(); touchPlaying = true; startEl.style.display = 'none'; touch?.show(true); return; }
   const wait = Math.max(0, 1300 - (performance.now() - lockExitAt));      // Chrome refuses a re-lock for ~1 s after Esc
   const go = () => { try { const r: any = renderer.domElement.requestPointerLock(); if (r && r.catch) r.catch(() => setTimeout(go, 400)); } catch { /* wait for a click */ } };
@@ -212,14 +215,17 @@ let frags = 0; const fragsEl = document.getElementById('frags')!;
 const combat = new Combat(scene, {
   targets: () => targets,
   playerBody: () => { playerBody.pos.set(player.x, player.y, player.z); playerBody.height = player.height; return playerBody; },
-  hurt(dmg, dir) { player.knock(dir.x * 1.5, 0.3, dir.z * 1.5); if (player.takeDamage(dmg)) die('DIED'); },
-  explode(pos, radius, dmg, knock, fromPlayer) {
+  hurt(dmg, dir, weapon, owner) { blame(owner, weapon); player.knock(dir.x * 1.5, 0.3, dir.z * 1.5); sfx.hurt(); if (player.takeDamage(dmg)) die('DIED'); },
+  landed(tg, dmg, point, weapon, killed) { onLanded(tg, dmg, point, weapon, killed); },
+  boom(pos, size) { sfx.boom(size, pos.distanceTo(camera.position)); },
+  explode(pos, radius, dmg, knock, fromPlayer, weapon, owner) {
     // splash on the local player (rocket jumps!)
     const c = new THREE.Vector3(player.x, player.y + 0.9, player.z); const d = c.distanceTo(pos);
     if (d >= radius) return;
     const f = 1 - d / radius; const dir = c.sub(pos).normalize(); dir.y += 0.3; dir.normalize();
     player.knock(dir.x * knock * f, dir.y * knock * f * 1.15, dir.z * knock * f);
     const self = fromPlayer ? 0.4 : 1;
+    blame(fromPlayer ? 'SELF' : owner, weapon); if (!fromPlayer) sfx.hurt();
     if (player.takeDamage(dmg * f * self)) die('EXPLODED');
   },
 });
@@ -231,9 +237,9 @@ const botVel = new THREE.Vector3(), botPrev = new THREE.Vector3(); let botPrevSe
 const qs = new URLSearchParams(location.search); const roomCode = (qs.get('room') || '').trim(); const myName = (qs.get('name') || 'PLAYER').slice(0, 14);
 if (!roomCode) spawnBots(scene, {
   player: { pos: new THREE.Vector3(), eye: new THREE.Vector3(), vel: botVel },
-  fire: (id, o, d, dmg, sp) => combat.fireEnemy(id, o, d, dmg, sp),
+  fire: (id, o, d, dmg, sp, owner) => { combat.fireEnemy(id, o, d, dmg, sp, owner); sfx.shot(id, Math.min(0.8, 9 / (o.distanceTo(camera.position) + 4))); },
   onKilled: b => { frags++; fragsEl.textContent = `FRAGS ${frags}`; say(`YOU FRAGGED ${b.name}`); },
-  onHit: () => { hitT = 0.18; },
+  onHit: () => { /* feedback comes from combat.landed */ },
 }).then(list => { for (const b of list) { bots.push(b); targets.push(b); (b as any).ctx.player = botCtxPlayer; } });
 const botCtxPlayer = { pos: new THREE.Vector3(), eye: new THREE.Vector3(), vel: botVel };
 
@@ -258,12 +264,21 @@ const net = new Net({
   join(p) { scoreboard.push(p); addRemote(p); say(`${p.name} JOINED`); drawNet(); },
   leave(id) { const r = remotes.get(id); if (r) { say(`${r.info.name} LEFT`); r.dispose(); targets.splice(targets.indexOf(r), 1); remotes.delete(id); } scoreboard = scoreboard.filter(p => p.id !== id); drawNet(); },
   state(id, m) { remotes.get(id)?.setState(m.p, m.yaw, m.w, m.hp, !!m.dead); },
-  fire(id, m) { const r = remotes.get(id); r?.flashFire(); combat.remoteShot(m.w, dirV(m.o), dirV(m.d)); lastAttacker = id; },
-  hit(from, dmg, dir, _kind) { lastAttacker = from; const d = dirV(dir); player.knock(d.x * 1.5, 0.3, d.z * 1.5); if (player.takeDamage(dmg)) die('DIED'); },
-  killed(id, by, board) {
+  fire(id, m) {
+    const r = remotes.get(id); r?.flashFire(); const o = dirV(m.o);
+    combat.remoteShot(m.w, o, dirV(m.d), String(id)); sfx.shot(m.w, Math.min(0.85, 10 / (o.distanceTo(camera.position) + 4)));
+  },
+  hit(from, dmg, dir, kind) { blame(String(from), (kind in WEAPON_DEFS ? kind : 'pistol') as WeaponId); const d = dirV(dir); player.knock(d.x * 1.5, 0.3, d.z * 1.5); sfx.hurt(); if (player.takeDamage(dmg)) die('DIED'); },
+  killed(id, by, board, w) {
     scoreboard = board; drawNet();
     const v = board.find(p => p.id === id), k = board.find(p => p.id === by);
-    if (v && id !== net.id) say(k && by === net.id ? `YOU FRAGGED ${v.name}` : k ? `${k.name} FRAGGED ${v.name}` : `${v.name} DIED`);
+    if (!v) return;
+    const weapon = (w && w in WEAPON_DEFS ? w : '') as WeaponId | '';
+    feed(k && k !== v ? k.name : '', weapon, v.name, k ? k.id === net.id : false, v.id === net.id, !k || k === v);
+    if (id !== net.id) {
+      if (k && by === net.id) { say(`YOU FRAGGED ${v.name}`); sfx.kill(); killMark(); }
+      else say(k ? `${k.name} FRAGGED ${v.name}` : `${v.name} DIED`);
+    }
   },
 });
 function wireOnlineUI() {
@@ -283,11 +298,64 @@ function wireOnlineUI() {
 wireOnlineUI();
 if (roomCode) net.connect(roomCode, myName, MAP);
 function die(why: string) {
-  if (net.online) net.send({ t: 'dead', by: lastAttacker });
+  const recent = performance.now() - killer.at < 6000;
+  const by = why === 'FELL' || !recent ? '' : killer.who, weapon: WeaponId | '' = why === 'FELL' || !recent ? '' : killer.weapon;
+  if (net.online) net.send({ t: 'dead', by: by && by !== 'SELF' ? Number(by) || 0 : 0, w: weapon });
+  else feed(by === 'SELF' ? '' : nameOf(by), weapon, myName === 'PLAYER' ? 'YOU' : myName, false, true, by === 'SELF' || !by);
+  killer.who = ''; sfx.died();
   say(why === 'EXPLODED' ? 'YOU BLEW UP' : why === 'FELL' ? 'YOU FELL' : 'YOU DIED'); player.respawn(); yaw = player.yaw; pitch = 0;
   loadout.reset(); vm.show('pistol'); lastBar = '';
 }
 player.onVoid = () => die('FELL');
+
+// ---- hit feedback: hit marker, damage numbers, kill feed ----
+const killer = { who: '', weapon: 'pistol' as WeaponId, at: 0 };
+/** remember who last hurt us (bot name, remote id as string, or 'SELF') so the death can be credited */
+function blame(who: string, weapon: WeaponId) { if (!who) return; killer.who = who; killer.weapon = weapon; killer.at = performance.now(); if (/^\d+$/.test(who)) lastAttacker = Number(who); }
+const nameOf = (who: string) => /^\d+$/.test(who) ? (remotes.get(Number(who))?.info.name ?? 'PLAYER') : who;
+let killT = 0;
+function killMark() { killT = 0.45; hitT = 0.3; hitEl.classList.add('kill'); }
+function onLanded(tg: Target, dmg: number, point: THREE.Vector3, weapon: WeaponId, killed: boolean) {
+  hitT = 0.2; sfx.hit(dmg); damageNumber(tg, point, dmg, killed);
+  if (killed) {
+    sfx.kill(); killMark();
+    if (!net.online) feed(myName === 'PLAYER' ? 'YOU' : myName, weapon, (tg as Bot).name ?? 'BOT', true, false, false);
+  }
+}
+// damage numbers: small DOM pool, projected from the 3D hit point each frame; pellets on the same target merge into one number
+interface DmgNum { el: HTMLDivElement; pos: THREE.Vector3; t: number; v: number; tg: Target | null }
+const dmgNums: DmgNum[] = [];
+for (let i = 0; i < 10; i++) { const el = document.createElement('div'); el.className = 'dmg'; document.getElementById('hud')!.appendChild(el); dmgNums.push({ el, pos: new THREE.Vector3(), t: 0, v: 0, tg: null }); }
+function damageNumber(tg: Target, p: THREE.Vector3, dmg: number, killed: boolean) {
+  let d = dmgNums.find(n => n.tg === tg && n.t > 0.55);                     // still fresh: add pellets/ticks together
+  if (!d) { d = dmgNums.reduce((a, b) => (a.t < b.t ? a : b)); d.v = 0; d.pos.copy(p); d.pos.x += (Math.random() - .5) * 0.3; }
+  d.tg = tg; d.v += dmg; d.t = 0.8; d.el.textContent = String(Math.round(d.v)); d.el.classList.toggle('big', killed || d.v >= 50);
+}
+const _np = new THREE.Vector3();
+function drawNumbers(dt: number) {
+  for (const n of dmgNums) {
+    if (n.t <= 0) { if (n.el.style.opacity !== '0') n.el.style.opacity = '0'; continue; }
+    n.t -= dt; n.pos.y += dt * 0.9;
+    _np.copy(n.pos).project(camera);
+    if (_np.z > 1) { n.el.style.opacity = '0'; continue; }
+    const x = (_np.x * 0.5 + 0.5) * innerWidth, y = (-_np.y * 0.5 + 0.5) * innerHeight;
+    const pop = n.t > 0.68 ? 1 + (n.t - 0.68) * 4 : 1;
+    n.el.style.transform = `translate(${x.toFixed(1)}px,${y.toFixed(1)}px) translate(-50%,-50%) scale(${pop.toFixed(2)})`;
+    n.el.style.opacity = String(Math.min(1, n.t * 2.5));
+  }
+}
+// kill feed (top right): KILLER [WEAPON] VICTIM, newest on top, fades after 5 s
+const feedEl = document.getElementById('feed')!;
+function feed(killerName: string, weapon: WeaponId | '', victim: string, meKiller: boolean, meVictim: boolean, selfOrWorld: boolean) {
+  const row = document.createElement('div'); row.className = 'kf' + (meKiller ? ' mek' : '') + (meVictim ? ' mev' : '');
+  const esc = (t: string) => t.replace(/[&<>"]/g, c => `&#${c.charCodeAt(0)};`);
+  const wcol = weapon ? '#' + WEAPON_DEFS[weapon].color.toString(16).padStart(6, '0') : '#9ab';
+  const tag = `<i style="--w:${wcol}">${weapon ? WEAPON_DEFS[weapon].name : 'VOID'}</i>`;
+  row.innerHTML = selfOrWorld || !killerName ? `${tag}<b class="v">${esc(victim)}</b>${weapon ? '<span>SELF</span>' : ''}` : `<b class="k">${esc(killerName)}</b>${tag}<b class="v">${esc(victim)}</b>`;
+  feedEl.prepend(row);
+  while (feedEl.children.length > 5) feedEl.lastElementChild!.remove();
+  setTimeout(() => { row.classList.add('out'); setTimeout(() => row.remove(), 500); }, 5000);
+}
 
 // ---- HUD ----
 let shownPadTime = 0;
@@ -297,7 +365,7 @@ function hud() {
   hpEl.firstChild!.textContent = String(Math.max(0, Math.ceil(player.health))); hpEl.style.color = player.health > 50 ? '#ffd24a' : player.health > 25 ? '#ff9a3c' : '#ff4040';
   arEl.firstChild!.textContent = String(Math.ceil(player.armor));
   flashEl.style.opacity = String(Math.max(0, player.hurtT) * 1.6);
-  if (player.lastPadTime !== shownPadTime) { shownPadTime = player.lastPadTime; say(player.lastPad); }
+  if (player.lastPadTime !== shownPadTime) { shownPadTime = player.lastPadTime; say(player.lastPad); sfx.jumpPad(); }
   refreshBar();
 }
 
@@ -307,8 +375,11 @@ function tryFire(dt: number) {
   const id = vm.current; const st = WEAPON_DEFS[id].stats;
   if (!(firing() && locked()) || loadout.cooldown > 0 || vm.switching) return;
   if (!loadout.canFire(id)) { loadout.cooldown = 0.3; if (id !== 'blade' && id !== 'pistol') vm.select(loadout.best()); return; }
-  loadout.cooldown = st.interval; loadout.consume(id);
-  doFire(id);
+  // keep the real fire rate even when a frame is slow: carry leftover time and fire up to 3 shots this frame
+  for (let n = 0; n < 3 && loadout.cooldown <= 0 && loadout.canFire(id); n++) {
+    loadout.cooldown = Math.max(loadout.cooldown, -st.interval) + st.interval; loadout.consume(id);
+    doFire(id);
+  }
 }
 function doFire(id: Parameters<typeof combat.fire>[0]) {
   _dir.set(-Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), -Math.cos(yaw) * Math.cos(pitch));
@@ -317,7 +388,7 @@ function doFire(id: Parameters<typeof combat.fire>[0]) {
   const muzzle = camera.localToWorld(vm.muzzleCamSpace());
   combat.fire(id, _eye, _dir, muzzle);
   if (net.online) { const w = rayWorld(_eye, _dir, 200); const aim = _eye.clone().addScaledVector(_dir, w ? w.t : 200); const dd = aim.sub(muzzle).normalize(); net.send({ t: 'fire', w: id, o: [muzzle.x, muzzle.y, muzzle.z], d: [dd.x, dd.y, dd.z] }); }
-  vm.fire(id); crossKick = 1;
+  vm.fire(id); crossKick = 1; sfx.shot(id);
 }
 
 // ---- loop (fixed 120 Hz sim) ----
@@ -344,6 +415,7 @@ function frame(now: number) {
   player.hurtT = Math.max(0, player.hurtT - frameMs / 1000);
   tryFire(Math.min(0.05, frameMs / 1000));
   for (const got of pickupSys.update(now / 1000, player, d => d.kind === 'weapon' ? loadout.wouldAccept(d.id) : d.kind === 'health' ? player.health < 100 : player.armor < 100)) {
+    sfx.pickup();
     if (got.kind === 'weapon') { const r = loadout.give(got.id); say(r === 'new' ? `${WEAPON_DEFS[got.id].name} ACQUIRED` : `+${WEAPON_DEFS[got.id].stats.ammoPickup} ${WEAPON_DEFS[got.id].name} AMMO`); if (r === 'new') vm.select(got.id); }
     else if (got.kind === 'health') { player.health = Math.min(100, player.health + got.amount); say(`+${got.amount} HEALTH`); }
     else { player.armor = Math.min(100, player.armor + got.amount); say(`+${got.amount} ARMOR`); }
@@ -354,12 +426,16 @@ function frame(now: number) {
     if (!(window as any).__freezeBots) for (const b of bots) b.update(bdt);
     for (const r of remotes.values()) r.update(bdt);
     hitT = Math.max(0, hitT - bdt); hitEl.style.opacity = String(Math.min(1, hitT * 8));
+    hitEl.style.setProperty('--hs', (1 + Math.max(0, hitT - 0.12) * 4).toFixed(2));
+    if (killT > 0) { killT -= bdt; if (killT <= 0) hitEl.classList.remove('kill'); }
+    drawNumbers(bdt);
     // dynamic crosshair: opens up with speed, air time and each shot, then settles back
     crossKick = Math.max(0, crossKick - bdt * 5);
     const gap = 6 + Math.min(6, player.speedXZ * 0.35) + (player.grounded ? 0 : 3) + crossKick * 7;
     if (Math.abs(gap - crossGap) > 0.25) { crossGap += (gap - crossGap) * Math.min(1, bdt * 18); crossEl.style.setProperty('--g', `${crossGap.toFixed(1)}px`); }
     crossEl.classList.toggle('dry', !loadout.canFire(vm.current));
     net.sendState(bdt, { p: [player.x, player.y, player.z], yaw, pitch, w: vm.current, hp: player.health, dead: false }); }
+  combat.setViewHeight(renderer.domElement.height);
   if (!(window as any).__freeze) combat.update(Math.min(0.05, frameMs / 1000));
   stars.update(camera, renderer.getPixelRatio());
   if (!Q.liveSky || PLAIN_SKY) { const a = now / 1000 * 0.004; scene.backgroundRotation.y = a; stars.mesh.rotation.y = a; }

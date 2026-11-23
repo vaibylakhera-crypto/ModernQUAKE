@@ -38,34 +38,77 @@ function radial(stops: [number, string][], size = 128): THREE.CanvasTexture {
 const texGlow = radial([[0, 'rgba(255,255,255,1)'], [0.4, 'rgba(255,255,255,.95)'], [0.7, 'rgba(255,255,255,.3)'], [1, 'rgba(255,255,255,0)']]);
 const texSmoke = radial([[0, 'rgba(255,255,255,.7)'], [0.6, 'rgba(255,255,255,.25)'], [1, 'rgba(255,255,255,0)']]);
 
-// ───────────── particles (sprite pool) ─────────────
-interface P { s: THREE.Sprite; vel: THREE.Vector3; life: number; max: number; s0: number; s1: number; grav: number; a0: number }
-class Particles {
-  pool: P[] = []; free: P[] = [];
-  constructor(scene: THREE.Scene, n = 360) {
-    for (let i = 0; i < n; i++) {
-      const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: texGlow, transparent: true, depthWrite: false, fog: false, blending: THREE.AdditiveBlending }));
-      s.visible = false; scene.add(s);
-      const p: P = { s, vel: new THREE.Vector3(), life: 0, max: 1, s0: 1, s1: 1, grav: 0, a0: 1 }; this.pool.push(p); this.free.push(p);
-    }
+// ───────────── particles: one batched Points draw per layer (was one Sprite draw call per particle) ─────────────
+const PVERT = /* glsl */ `
+attribute vec3 aColor; attribute float aSize; attribute float aAlpha;
+uniform float uViewH; varying vec4 vC;
+void main(){
+  vC = vec4(aColor, aAlpha);
+  vec4 mv = modelViewMatrix * vec4(position, 1.0);
+  gl_Position = projectionMatrix * mv;
+  gl_PointSize = aAlpha <= 0.0 ? 0.0 : aSize * projectionMatrix[1][1] * uViewH * 0.5 / max(0.05, -mv.z);
+}`;
+const PFRAG = /* glsl */ `
+uniform sampler2D uMap; varying vec4 vC;
+void main(){
+  vec4 t = texture2D(uMap, gl_PointCoord);
+  gl_FragColor = vec4(t.rgb * vC.rgb, t.a * vC.a);
+  if (gl_FragColor.a < 0.004) discard;
+  #include <tonemapping_fragment>
+  #include <colorspace_fragment>
+}`;
+class ParticleLayer {
+  private n: number; private pos: Float32Array; private col: Float32Array; private size: Float32Array; private alpha: Float32Array;
+  private vel: Float32Array; private life: Float32Array; private max: Float32Array; private s0: Float32Array; private s1: Float32Array; private grav: Float32Array; private a0: Float32Array;
+  private next = 0; private geo = new THREE.BufferGeometry(); readonly mat: THREE.ShaderMaterial; private live = 0;
+  constructor(scene: THREE.Scene, n: number, map: THREE.Texture, additive: boolean) {
+    this.n = n;
+    this.pos = new Float32Array(n * 3); this.col = new Float32Array(n * 3); this.size = new Float32Array(n); this.alpha = new Float32Array(n);
+    this.vel = new Float32Array(n * 3); this.life = new Float32Array(n); this.max = new Float32Array(n); this.s0 = new Float32Array(n); this.s1 = new Float32Array(n); this.grav = new Float32Array(n); this.a0 = new Float32Array(n);
+    const dyn = (a: Float32Array, k: number) => new THREE.BufferAttribute(a, k).setUsage(THREE.DynamicDrawUsage);
+    this.geo.setAttribute('position', dyn(this.pos, 3)); this.geo.setAttribute('aColor', dyn(this.col, 3));
+    this.geo.setAttribute('aSize', dyn(this.size, 1)); this.geo.setAttribute('aAlpha', dyn(this.alpha, 1));
+    this.mat = new THREE.ShaderMaterial({ vertexShader: PVERT, fragmentShader: PFRAG, uniforms: { uMap: { value: map }, uViewH: { value: 800 } },
+      transparent: true, depthWrite: false, blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending });
+    const pts = new THREE.Points(this.geo, this.mat); pts.frustumCulled = false; pts.renderOrder = 5; scene.add(pts);
   }
-  spawn(pos: THREE.Vector3, vel: THREE.Vector3, life: number, s0: number, s1: number, color: number, o: { add?: boolean; grav?: number; a?: number; smoke?: boolean } = {}) {
-    const p = this.free.pop(); if (!p) return;
-    const m = p.s.material as THREE.SpriteMaterial;
-    m.map = o.smoke ? texSmoke : texGlow; m.color.set(color); m.blending = o.add === false ? THREE.NormalBlending : THREE.AdditiveBlending; m.needsUpdate = true;
-    p.s.position.copy(pos); p.vel.copy(vel); p.life = p.max = life; p.s0 = s0; p.s1 = s1; p.grav = o.grav ?? 0; p.a0 = o.a ?? 1; p.s.visible = true;
+  spawn(p: THREE.Vector3, v: THREE.Vector3, life: number, s0: number, s1: number, color: THREE.Color, grav: number, a0: number) {
+    // ring buffer: when full, the oldest particle is recycled (new effects are never dropped)
+    const i = this.next; this.next = (this.next + 1) % this.n;
+    this.pos[i * 3] = p.x; this.pos[i * 3 + 1] = p.y; this.pos[i * 3 + 2] = p.z;
+    this.vel[i * 3] = v.x; this.vel[i * 3 + 1] = v.y; this.vel[i * 3 + 2] = v.z;
+    this.col[i * 3] = color.r; this.col[i * 3 + 1] = color.g; this.col[i * 3 + 2] = color.b;
+    this.life[i] = this.max[i] = life; this.s0[i] = s0; this.s1[i] = s1; this.grav[i] = grav; this.a0[i] = a0; this.size[i] = s0; this.alpha[i] = a0;
+    this.live = 2;
   }
   update(dt: number) {
-    for (const p of this.pool) {
-      if (p.life <= 0) continue;
-      p.life -= dt;
-      if (p.life <= 0) { p.s.visible = false; this.free.push(p); continue; }
-      p.vel.y -= p.grav * dt; p.s.position.addScaledVector(p.vel, dt);
-      const k = 1 - p.life / p.max;
-      p.s.scale.setScalar(p.s0 + (p.s1 - p.s0) * k);
-      (p.s.material as THREE.SpriteMaterial).opacity = p.a0 * (1 - k) * (1 - k * 0.3);
+    if (this.live <= 0) return;          // nothing alive: skip the GPU upload entirely
+    let alive = 0;
+    for (let i = 0; i < this.n; i++) {
+      if (this.life[i] <= 0) continue;
+      this.life[i] -= dt;
+      if (this.life[i] <= 0) { this.alpha[i] = 0; continue; }
+      alive++;
+      this.vel[i * 3 + 1] -= this.grav[i] * dt;
+      this.pos[i * 3] += this.vel[i * 3] * dt; this.pos[i * 3 + 1] += this.vel[i * 3 + 1] * dt; this.pos[i * 3 + 2] += this.vel[i * 3 + 2] * dt;
+      const k = 1 - this.life[i] / this.max[i];
+      this.size[i] = this.s0[i] + (this.s1[i] - this.s0[i]) * k;
+      this.alpha[i] = this.a0[i] * (1 - k) * (1 - k * 0.3);
     }
+    for (const name of ['position', 'aSize', 'aAlpha', 'aColor']) (this.geo.getAttribute(name) as THREE.BufferAttribute).needsUpdate = true;
+    this.live = alive > 0 ? 2 : this.live - 1;   // one extra upload after the last one dies, so it disappears
   }
+}
+const _pc = new THREE.Color();
+class Particles {
+  private glow: ParticleLayer; private smoke: ParticleLayer;
+  constructor(scene: THREE.Scene) { this.glow = new ParticleLayer(scene, 600, texGlow, true); this.smoke = new ParticleLayer(scene, 160, texSmoke, false); }
+  spawn(pos: THREE.Vector3, vel: THREE.Vector3, life: number, s0: number, s1: number, color: number, o: { add?: boolean; grav?: number; a?: number; smoke?: boolean } = {}) {
+    _pc.set(color);
+    (o.smoke ? this.smoke : this.glow).spawn(pos, vel, life, s0, s1, _pc, o.grav ?? 0, o.a ?? 1);
+  }
+  setViewHeight(h: number) { this.glow.mat.uniforms.uViewH.value = h; this.smoke.mat.uniforms.uViewH.value = h; }
+  update(dt: number) { this.glow.update(dt); this.smoke.update(dt); }
 }
 
 // ───────────── tracers / beams (additive stretched cylinders) ─────────────
@@ -118,14 +161,24 @@ class Tracers {
 }
 
 // ───────────── projectiles ─────────────
-interface Proj { kind: WeaponId; pos: THREE.Vector3; vel: THREE.Vector3; life: number; obj: THREE.Object3D; trail: number; fromPlayer: boolean; dmg: number }
+interface Proj { kind: WeaponId; pos: THREE.Vector3; vel: THREE.Vector3; life: number; obj: THREE.Object3D; trail: number; fromPlayer: boolean; dmg: number; owner: string }
+// shared materials: a minigun stream spawns ~12 bolts/s, so never allocate materials per shot
+const boltCoreMat = new THREE.MeshBasicMaterial({ color: 0xfff4c0, fog: false, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false });
+const boltHaloMat = new THREE.MeshBasicMaterial({ color: 0xffa020, fog: false, transparent: true, opacity: 0.55, blending: THREE.AdditiveBlending, depthWrite: false });
+const plasmaHaloMat = new THREE.SpriteMaterial({ map: texGlow, color: 0x35d0ff, transparent: true, depthWrite: false, fog: false, blending: THREE.AdditiveBlending });
+const plasmaCoreMat = new THREE.SpriteMaterial({ map: texGlow, color: 0xe0fbff, transparent: true, depthWrite: false, fog: false, blending: THREE.AdditiveBlending });
 
 export interface CombatHooks {
-  /** called for every explosion so the game can apply splash to the local player */
-  explode(pos: THREE.Vector3, radius: number, damage: number, knock: number, fromPlayer: boolean): void;
+  /** called for every explosion so the game can apply splash to the local player. owner: who fired it ('' = local player) */
+  explode(pos: THREE.Vector3, radius: number, damage: number, knock: number, fromPlayer: boolean, weapon: WeaponId, owner: string): void;
   targets(): Target[];
   playerBody(): { pos: THREE.Vector3; radius: number; height: number };
-  hurt(dmg: number, dir: THREE.Vector3): void;
+  /** the local player was hit by a projectile */
+  hurt(dmg: number, dir: THREE.Vector3, weapon: WeaponId, owner: string): void;
+  /** the local player's attack landed on a target (hit markers, damage numbers, sounds, kill feed) */
+  landed?(tg: Target, dmg: number, point: THREE.Vector3, weapon: WeaponId, killed: boolean): void;
+  /** an explosion happened at pos (sound) */
+  boom?(pos: THREE.Vector3, size: number): void;
 }
 
 export class Combat {
@@ -166,12 +219,12 @@ export class Combat {
       const spread = st.spread ?? 0; if (spread) { d.x += (Math.random() - .5) * spread * 2; d.y += (Math.random() - .5) * spread * 2; d.z += (Math.random() - .5) * spread * 2; d.normalize(); }
       return this.spawnProj(id, muzzle.clone(), d.multiplyScalar(st.speed!));
     }
-    if (st.kind === 'beam') { this.arcT = 0.09; this.arcA.copy(muzzle); const r = this.trace(eye, dir, st.range!, st.damage, 'arc'); this.arcB.copy(r.point); if (r.hitWorld) this.sparks(r.point, r.n!, 0x9a7bff, 3); return; }
+    if (st.kind === 'beam') { this.arcT = 0.09; this.arcA.copy(muzzle); const r = this.trace(eye, dir, st.range!, st.damage, 'arc', false, 'arc'); this.arcB.copy(r.point); if (r.hitWorld) this.sparks(r.point, r.n!, 0x9a7bff, 3); return; }
     const pellets = st.pellets ?? 1;
     for (let i = 0; i < pellets; i++) {
       const d = dir.clone(); const sp = st.spread ?? 0;
       if (sp) { d.x += (Math.random() - .5) * sp * 2; d.y += (Math.random() - .5) * sp * 2; d.z += (Math.random() - .5) * sp * 2; d.normalize(); }
-      const r = this.trace(eye, d, st.range!, st.damage, id, st.kind === 'rail');
+      const r = this.trace(eye, d, st.range!, st.damage, id, st.kind === 'rail', id);
       if (st.kind === 'rail') { this.railBeam(muzzle, r.point); this.sparks(r.point, r.n ?? new THREE.Vector3(0, 1, 0), col, 14); this.shake = Math.max(this.shake, 0.5); }
       else {
         const sc = id === 'scatter';
@@ -183,20 +236,27 @@ export class Combat {
     if (id === 'scatter') this.shake = Math.max(this.shake, 0.35);
   }
 
+  /** apply the local player's damage to a target and report it */
+  private strike(tg: Target, dmg: number, from: THREE.Vector3, dir: THREE.Vector3, netKind: string, weapon: WeaponId, point: THREE.Vector3) {
+    const was = tg.alive; tg.hit(dmg, from, dir, netKind);
+    this.hooks.landed?.(tg, dmg, point, weapon, was && !tg.alive);
+  }
+
   private aimPoint(eye: THREE.Vector3, dir: THREE.Vector3, max: number): THREE.Vector3 {
     const w = rayWorld(eye, dir, max); return eye.clone().addScaledVector(dir, w ? w.t : max);
   }
 
   /** ray vs world + targets; applies damage to the nearest target (rail pierces) */
-  private trace(o: THREE.Vector3, d: THREE.Vector3, range: number, dmg: number, kind: string, pierce = false): { point: THREE.Vector3; n: THREE.Vector3 | null; hitWorld: boolean } {
+  private trace(o: THREE.Vector3, d: THREE.Vector3, range: number, dmg: number, kind: string, pierce: boolean, weapon: WeaponId): { point: THREE.Vector3; n: THREE.Vector3 | null; hitWorld: boolean } {
     const w = rayWorld(o, d, range); const maxT = w ? w.t : range;
     const hits: { t: number; tg: Target }[] = [];
     for (const tg of this.hooks.targets()) { if (!tg.alive) continue; const t = rayTarget(o, d, maxT, tg); if (t !== null) hits.push({ t, tg }); }
     hits.sort((a, b) => a.t - b.t);
     let endT = maxT, hitWorld = !!w;
     for (const h of hits) {
-      h.tg.hit(dmg, o, d, kind);
-      this.sparks(o.clone().addScaledVector(d, h.t), d.clone().negate(), 0xff4040, 8);
+      const hp = o.clone().addScaledVector(d, h.t);
+      this.strike(h.tg, dmg, o, d, kind, weapon, hp);
+      this.blood(hp, d);
       if (!pierce) { endT = h.t; hitWorld = false; break; }
     }
     return { point: o.clone().addScaledVector(d, endT), n: hitWorld && w ? w.n : null, hitWorld };
@@ -207,7 +267,7 @@ export class Combat {
     for (const tg of this.hooks.targets()) {
       if (!tg.alive) continue;
       const c = tg.pos.clone(); c.y += tg.height * 0.6; const to = c.sub(eye); const dist = to.length();
-      if (dist < range + tg.radius && to.normalize().dot(dir) > 0.55) { tg.hit(dmg, eye, dir, 'blade'); this.sparks(eye.clone().addScaledVector(dir, Math.min(dist, range)), dir.clone().negate(), 0x5ee8ff, 12); return; }
+      if (dist < range + tg.radius && to.normalize().dot(dir) > 0.55) { const hp = eye.clone().addScaledVector(dir, Math.min(dist, range)); this.strike(tg, dmg, eye, dir, 'blade', 'blade', hp); this.blood(hp, dir); this.sparks(eye.clone().addScaledVector(dir, Math.min(dist, range)), dir.clone().negate(), 0x5ee8ff, 12); return; }
     }
     if (w) this.sparks(eye.clone().addScaledVector(dir, w.t), w.n, 0x5ee8ff, 8);
   }
@@ -229,38 +289,46 @@ export class Combat {
   }
 
   /** another online player's shot, replicated here: projectiles are real (they hurt us), hitscan is visual only (their client reports the hit) */
-  remoteShot(id: WeaponId, muzzle: THREE.Vector3, dir: THREE.Vector3) {
+  remoteShot(id: WeaponId, muzzle: THREE.Vector3, dir: THREE.Vector3, owner = '') {
     const st = WEAPON_DEFS[id].stats; const col = WEAPON_DEFS[id].color;
-    if (st.kind === 'projectile') { this.spawnProj(id, muzzle.clone(), dir.clone().multiplyScalar(st.speed!), false, st.damage); return; }
+    if (st.kind === 'projectile') { this.spawnProj(id, muzzle.clone(), dir.clone().multiplyScalar(st.speed!), false, st.damage, owner); return; }
     if (st.kind === 'melee') return;
     const range = st.range ?? 200; const w = rayWorld(muzzle, dir, range); const end = muzzle.clone().addScaledVector(dir, w ? w.t : range);
     if (st.kind === 'rail') { this.railBeam(muzzle, end); if (w) this.sparks(end, w.n, col, 10); }
     else if (st.kind === 'beam') { this.arcT = 0.09; this.arcA.copy(muzzle); this.arcB.copy(end); }
-    else { this.tracers.fly(muzzle, end, 0.05, 0xfff0a0, 300, 5); if (w) this.sparks(end, w.n, col, 4); }
+    else {
+      const n = st.pellets ?? 1, sp = st.spread ?? 0;
+      for (let i = 0; i < Math.min(n, 6); i++) {        // shotgun: show a spread of pellets, not one line
+        const d = dir.clone(); if (sp) { d.x += (Math.random() - .5) * sp * 2; d.y += (Math.random() - .5) * sp * 2; d.z += (Math.random() - .5) * sp * 2; d.normalize(); }
+        const ww = rayWorld(muzzle, d, range); const e = muzzle.clone().addScaledVector(d, ww ? ww.t : range);
+        this.tracers.fly(muzzle, e, 0.05, 0xfff0a0, 300, 5); if (ww) this.sparks(e, ww.n, col, 3);
+      }
+    }
   }
 
   /** a bot's shot: same visuals, hurts the player, ignores other bots */
-  fireEnemy(id: WeaponId, origin: THREE.Vector3, dir: THREE.Vector3, dmg: number, speedScale: number) {
-    const st = WEAPON_DEFS[id].stats; this.spawnProj(id, origin.clone(), dir.clone().multiplyScalar((st.speed ?? 30) * speedScale), false, dmg);
+  fireEnemy(id: WeaponId, origin: THREE.Vector3, dir: THREE.Vector3, dmg: number, speedScale: number, owner = '') {
+    const st = WEAPON_DEFS[id].stats; this.spawnProj(id, origin.clone(), dir.clone().multiplyScalar((st.speed ?? 30) * speedScale), false, dmg, owner);
   }
 
-  private spawnProj(id: WeaponId, pos: THREE.Vector3, vel: THREE.Vector3, fromPlayer = true, dmg?: number) {
+  private spawnProj(id: WeaponId, pos: THREE.Vector3, vel: THREE.Vector3, fromPlayer = true, dmg?: number, owner = '') {
     let obj: THREE.Object3D;
     if (id === 'rocket') { obj = this.rocketProto.clone(true); }
     else if (id === 'plasma') {
       const g = new THREE.Group();
-      const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: texGlow, color: 0x35d0ff, transparent: true, depthWrite: false, fog: false, blending: THREE.AdditiveBlending })); halo.scale.setScalar(1.6);
-      const core = new THREE.Sprite(new THREE.SpriteMaterial({ map: texGlow, color: 0xe0fbff, transparent: true, depthWrite: false, fog: false, blending: THREE.AdditiveBlending })); core.scale.setScalar(0.65);
+      const halo = new THREE.Sprite(plasmaHaloMat); halo.scale.setScalar(1.6);
+      const core = new THREE.Sprite(plasmaCoreMat); core.scale.setScalar(0.65);
       g.add(halo, core); obj = g;
     } else {
       const g = new THREE.Group();
-      const bolt = new THREE.Mesh(unitCyl, new THREE.MeshBasicMaterial({ color: 0xfff0a0, fog: false, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
-      bolt.scale.set(0.04, 0.04, 0.9); g.add(bolt);
-      const halo = new THREE.Mesh(unitCyl, new THREE.MeshBasicMaterial({ color: 0xffa020, fog: false, transparent: true, opacity: 0.4, blending: THREE.AdditiveBlending, depthWrite: false }));
-      halo.scale.set(0.13, 0.13, 1.1); g.add(halo); obj = g;
+      // minigun bolt: bright core + orange halo, long enough to read as a streak at 55 m/s
+      const bolt = new THREE.Mesh(unitCyl, boltCoreMat); bolt.scale.set(0.035, 0.035, 1.1); bolt.frustumCulled = false; g.add(bolt);
+      const halo = new THREE.Mesh(unitCyl, boltHaloMat); halo.scale.set(0.11, 0.11, 1.4); halo.frustumCulled = false; g.add(halo); obj = g;
     }
-    obj.position.copy(pos); if (id === 'rocket') obj.scale.setScalar(3.2); if (id !== 'plasma') obj.lookAt(pos.clone().sub(vel));   // model faces -Z, lookAt aims +Z this.scene.add(obj);
-    this.projs.push({ kind: id, pos, vel, life: 6, obj, trail: 0, fromPlayer, dmg: dmg ?? WEAPON_DEFS[id].stats.damage });
+    obj.position.copy(pos); if (id === 'rocket') obj.scale.setScalar(3.2);
+    if (id !== 'plasma') obj.lookAt(pos.clone().sub(vel));   // model faces -Z, lookAt aims +Z
+    this.scene.add(obj);                                      // (this call used to sit inside the comment above, so projectiles were invisible)
+    this.projs.push({ kind: id, pos, vel, life: 6, obj, trail: 0, fromPlayer, dmg: dmg ?? WEAPON_DEFS[id].stats.damage, owner });
   }
 
   // ───── effects ─────
@@ -272,7 +340,18 @@ export class Combat {
     this.particles.spawn(p.clone().addScaledVector(n, 0.05), new THREE.Vector3(), 0.14, 0.9, 1.6, color, { a: 0.9 });
   }
 
+  /** body hit: red burst + a quick bright flash so hits read even at range */
+  blood(p: THREE.Vector3, d: THREE.Vector3) {
+    const n = d.clone().negate();
+    for (let i = 0; i < 10; i++) {
+      const v = new THREE.Vector3(Math.random() - .5, Math.random() - .2, Math.random() - .5).multiplyScalar(4).addScaledVector(n, 2 + Math.random() * 3).addScaledVector(d, 1.5);
+      this.particles.spawn(p, v, 0.3 + Math.random() * 0.35, 0.16, 0.05, Math.random() < 0.6 ? 0xff2a1a : 0xff7a3a, { grav: 12 });
+    }
+    this.particles.spawn(p, new THREE.Vector3(), 0.1, 0.5, 1.1, 0xffe0c0, { a: 0.9 });
+  }
+
   explosion(p: THREE.Vector3, radius: number, color = 0xff8a2a) {
+    this.hooks.boom?.(p, radius);
     this.shake = Math.max(this.shake, Math.min(1, radius / 4.5));
     this.particles.spawn(p, new THREE.Vector3(), 0.14, radius * 1.1, radius * 2.4, 0xfff0c0, { a: 1 });
     for (let i = 0; i < 18; i++) {
@@ -297,6 +376,9 @@ export class Combat {
       this.particles.spawn(p.clone().addScaledVector(n, 0.1), v, 0.3 + Math.random() * 0.2, 0.2, 0.02, 0x8af4ff, { grav: 4 });
     }
   }
+
+  /** drawing-buffer height in pixels (particle sizes are in world metres) */
+  setViewHeight(h: number) { this.particles.setViewHeight(h); }
 
   // ───── update ─────
   update(dt: number) {
@@ -324,11 +406,11 @@ export class Combat {
       }
       const hp = pr.pos.clone().addScaledVector(dir, hitT);
       this.scene.remove(pr.obj); this.projs.splice(i, 1);
-      if (tgHit) tgHit.hit(pr.dmg, pr.pos, dir, pr.kind);
-      if (kindHit === 'player') this.hooks.hurt(pr.dmg, dir);
-      if (pr.kind === 'rocket') { const e = hp.clone().addScaledVector(n!, 0.15); this.explosion(e, st.splash!); this.hooks.explode(e, st.splash!, pr.dmg, st.knock!, pr.fromPlayer); if (pr.fromPlayer) this.splashTargets(e, st.splash!, pr.dmg, tgHit); }
-      else if (pr.kind === 'plasma') { const e = hp.clone().addScaledVector(n!, 0.1); this.plasmaSplash(e, n!); this.hooks.explode(e, st.splash!, pr.dmg * 0.5, st.knock!, pr.fromPlayer); if (pr.fromPlayer) this.splashTargets(e, st.splash!, pr.dmg * 0.5, tgHit); }
-      else this.sparks(hp, n!, 0xffc02d, 5);
+      if (tgHit) { this.strike(tgHit, pr.dmg, pr.pos, dir, pr.kind, pr.kind, hp); this.blood(hp, dir); }
+      if (kindHit === 'player') this.hooks.hurt(pr.dmg, dir, pr.kind, pr.owner);
+      if (pr.kind === 'rocket') { const e = hp.clone().addScaledVector(n!, 0.15); this.explosion(e, st.splash!); this.hooks.explode(e, st.splash!, pr.dmg, st.knock!, pr.fromPlayer, pr.kind, pr.owner); if (pr.fromPlayer) this.splashTargets(e, st.splash!, pr.dmg, tgHit, pr.kind); }
+      else if (pr.kind === 'plasma') { const e = hp.clone().addScaledVector(n!, 0.1); this.plasmaSplash(e, n!); this.hooks.explode(e, st.splash!, pr.dmg * 0.5, st.knock!, pr.fromPlayer, pr.kind, pr.owner); if (pr.fromPlayer) this.splashTargets(e, st.splash!, pr.dmg * 0.5, tgHit, pr.kind); }
+      else if (!tgHit) this.sparks(hp, n!, 0xffc02d, 5);
     }
     // arc beam: jagged segments re-rolled every frame while active
     this.arcT -= dt;
@@ -360,11 +442,11 @@ export class Combat {
     this.shake = Math.max(0, this.shake - dt * 3);
   }
 
-  private splashTargets(p: THREE.Vector3, radius: number, dmg: number, skip: Target | null) {
+  private splashTargets(p: THREE.Vector3, radius: number, dmg: number, skip: Target | null, weapon: WeaponId) {
     for (const tg of this.hooks.targets()) {
       if (!tg.alive || tg === skip) continue;
       const c = tg.pos.clone(); c.y += tg.height * 0.5; const d = c.distanceTo(p);
-      if (d < radius) tg.hit(dmg * (1 - d / radius), p, c.sub(p).normalize(), 'splash');
+      if (d < radius) { const hp = c.clone(); this.strike(tg, dmg * (1 - d / radius), p, c.sub(p).normalize(), 'splash', weapon, hp); }
     }
   }
 }

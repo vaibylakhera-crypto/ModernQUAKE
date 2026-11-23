@@ -78,7 +78,8 @@ wss.on('connection', (ws, req) => {
     else if (m.t === 'hit') { const to = room.players.get(Number(m.to)); if (to) send(to.ws, { t: 'hit', from: id, dmg: Math.min(150, Number(m.dmg) || 0), dir: m.dir, kind: m.kind }); }
     else if (m.t === 'dead') {
       me.deaths++; const k = room.players.get(Number(m.by)); if (k && k !== me) k.frags++;
-      bcast(room, { t: 'killed', id, by: Number(m.by) || 0, board: board(room) });
+      const w = typeof m.w === 'string' && /^[a-z]{1,12}$/.test(m.w) ? m.w : '';
+      bcast(room, { t: 'killed', id, by: Number(m.by) || 0, w, board: board(room) });
     }
   });
   ws.on('close', () => {
