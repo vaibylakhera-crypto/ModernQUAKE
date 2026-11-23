@@ -291,7 +291,7 @@ const combat = new Combat(scene, {
   ownerFriendly: owner => friendlyOwner(owner),
   hurt(dmg, dir, weapon, owner) { if (friendlyOwner(owner)) return; blame(owner, weapon); showDamageDir(-dir.x, -dir.z); buzz(30); player.knock(dir.x * 1.5, 0.3, dir.z * 1.5); sfx.hurt(); if (player.takeDamage(dmg)) die('DIED'); },
   landed(tg, dmg, point, weapon, killed) { onLanded(tg, dmg, point, weapon, killed); },
-  boom(pos, size) { sfx.boom(size, pos.distanceTo(camera.position)); },
+  boom(pos, size) { sfx.boom(size, pos.distanceTo(camera.position), panOf(pos)); },
   explode(pos, radius, dmg, knock, fromPlayer, weapon, owner) {
     // splash on the local player (rocket jumps!); teammates' splash does not hurt
     if (!fromPlayer && friendlyOwner(owner)) return;
@@ -357,7 +357,7 @@ const botCtx: BotCtx = {
     return best ?? botCtxPlayer;
   },
   fire(id, o, d, dmg, sp, owner, bot) {
-    combat.fireEnemy(id, o, d, dmg, sp, owner); sfx.shot(id, Math.min(0.8, 9 / (o.distanceTo(camera.position) + 4)));
+    combat.fireEnemy(id, o, d, dmg, sp, owner); sfx.shot(id, Math.min(0.8, 9 / (o.distanceTo(camera.position) + 4)), panOf(o));
     if (mode === 'online' && bot.netId) net.send({ t: 'fire', as: bot.netId, w: id, o: [o.x, o.y, o.z], d: [d.x, d.y, d.z] });
   },
   onKilled(b, by, w) {
@@ -570,7 +570,7 @@ const net = new Net({
   state(id, m) { remotes.get(id)?.setState(m.p, m.yaw, m.w, m.hp, !!m.dead); },
   fire(id, m) {
     const r = remotes.get(id); r?.flashFire(); const o = dirV(m.o);
-    combat.remoteShot(m.w, o, dirV(m.d), String(id), Number(m.k) || 1); sfx.shot(m.w, Math.min(0.85, 10 / (o.distanceTo(camera.position) + 4)));
+    combat.remoteShot(m.w, o, dirV(m.d), String(id), Number(m.k) || 1); sfx.shot(m.w, Math.min(0.85, 10 / (o.distanceTo(camera.position) + 4)), panOf(o));
   },
   hit(from, dmg, dir, kind) { blame(String(from), (kind in WEAPON_DEFS ? kind : 'pistol') as WeaponId); const d = dirV(dir); showDamageDir(-d.x, -d.z); buzz(30); player.knock(d.x * 1.5, 0.3, d.z * 1.5); sfx.hurt(); if (player.takeDamage(dmg)) die('DIED'); },
   killed(id, by, b, w, tsv, cap) {
@@ -636,6 +636,9 @@ function ctfTick(t: number) {
     flagCool = performance.now() + 500; break;
   }
 }
+const _pr = new THREE.Vector3(), _pd = new THREE.Vector3();
+/** -1 (left) .. 1 (right): where a sound at `pos` is relative to where we are looking */
+function panOf(pos: THREE.Vector3): number { _pd.copy(pos).sub(camera.position); const l = _pd.length() || 1; _pr.set(1, 0, 0).applyQuaternion(camera.quaternion); return Math.max(-1, Math.min(1, (_pd.dot(_pr) / l) * 0.9)); }
 const nameById = (id: number) => scoreboard.find(p => p.id === id)?.name ?? 'PLAYER';
 function onFlagEvent(ev: any) {
   if (!ev || !TEAMS[ev.f]) return;
@@ -963,4 +966,4 @@ function frame(now: number) {
 requestAnimationFrame(frame);
 
 // dev/test hook
-(window as any).__game = { bots, net, remotes, menu, stars, scene, riders, nav: navMod, voice, get ts() { return ts; }, myTeam, flagSt: () => flagSt, teamOfOwner, soloKill, grantBooster, boost, liftSys, lifts: __lifts, level: { pads: levelPads, teleporters: levelTeleporters, boxes, pickups: levelPickups, spawns: levelSpawns }, get mode() { return mode; }, get matchState() { return matchState; }, scores: () => board(), doFire, player, camera, vm, loadout, combat, pickupSys, targets, say, die, renderer, world, Q, get scale() { return renderScale; }, setLook: (y: number, p: number) => { yaw = y; pitch = p; }, PM };
+(window as any).__game = { bots, net, remotes, menu, stars, scene, sfx, riders, nav: navMod, voice, get ts() { return ts; }, myTeam, flagSt: () => flagSt, teamOfOwner, soloKill, grantBooster, boost, liftSys, lifts: __lifts, level: { pads: levelPads, teleporters: levelTeleporters, boxes, pickups: levelPickups, spawns: levelSpawns }, get mode() { return mode; }, get matchState() { return matchState; }, scores: () => board(), doFire, player, camera, vm, loadout, combat, pickupSys, targets, say, die, renderer, world, Q, get scale() { return renderScale; }, setLook: (y: number, p: number) => { yaw = y; pitch = p; }, PM };
