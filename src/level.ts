@@ -390,7 +390,8 @@ export function inGate(t: Gate, x: number, y: number, z: number): boolean {
   return Math.abs(-dx * s - dz * c) < 0.9 && Math.abs(dx * c - dz * s) < 1.25;
 }
 export const botZones = DEF.botZones;
-export const THEME = DEF.theme;
+/** a touch less fog than the raw theme so the far side of a map is readable */
+export const THEME = { ...DEF.theme, fogD: DEF.theme.fogD * 0.65 };
 export const flags = DEF.flags;
 
 /** Compute launch velocity from `from` to land at `to` with a given apex height above the higher point. */
