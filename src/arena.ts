@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { boxes, pads, Box, teleporters } from './level';
+import { boxes, pads, Box, teleporters, THEME } from './level';
 import { Quality } from './quality';
 import { buildPad, padTime, buildTeleporter, teleTime } from './pads';
 
@@ -131,10 +131,11 @@ export class Arena {
     boxes.forEach((b, i) => {
       if (b.kind === 'pillar') this.pillar(b);
       else if (b.kind === 'crates') this.lowWall(b);
+      else if (b.kind === 'block') this.solid(b);
       else this.platform(b, i);
     });
     const mat = (part: Part): THREE.Material => {
-      if (part === 'lamp') return new THREE.MeshBasicMaterial({ color: 0xffa050 });
+      if (part === 'lamp') return new THREE.MeshBasicMaterial({ color: THEME.lamp });
       const o = { map: tex(part), vertexColors: true };
       if (part === 'floor') {
         // deck plates: normal map for real relief under the lights, specular map so worn metal glints and grime stays dull
@@ -145,7 +146,12 @@ export class Arena {
       return this.q.pbr ? new THREE.MeshStandardMaterial({ ...o, roughness: part === 'trim' ? 0.55 : 0.9, metalness: part === 'trim' ? 0.45 : 0.05 })
         : new THREE.MeshLambertMaterial(o);
     };
+    const tn = THEME.tint;
     for (const [part, geos] of this.parts) {
+      if (part !== 'lamp' && (tn[0] !== 1 || tn[1] !== 1 || tn[2] !== 1)) for (const g of geos) {
+        const c = g.getAttribute('color') as THREE.BufferAttribute | undefined; if (!c) continue;
+        for (let i = 0; i < c.count; i++) c.setXYZ(i, c.getX(i) * tn[0], c.getY(i) * tn[1], c.getZ(i) * tn[2]);
+      }
       const m = new THREE.Mesh(mergeGeometries(geos.map(g => { for (const n of Object.keys(g.attributes)) if (!['position', 'normal', 'uv', 'color', 'tangent'].includes(n)) g.deleteAttribute(n); if (!g.getAttribute('color')) { const c = new Float32Array(g.getAttribute('position').count * 3).fill(1); g.setAttribute('color', new THREE.BufferAttribute(c, 3)); } if (!g.getAttribute('uv')) g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(g.getAttribute('position').count * 2), 2)); return g.index ? g.toNonIndexed() : g; }))!, mat(part));
       m.matrixAutoUpdate = false; this.group.add(m); this.stats.merged++;
     }
@@ -191,6 +197,12 @@ export class Arena {
     const cx = (min.x + max.x) / 2, cz = (min.z + max.z) / 2;
     this.add('lamp', brush(new THREE.Vector3(cx - 0.14, max.y - 1.1, max.z + 0.01), new THREE.Vector3(cx + 0.14, max.y - 0.8, max.z + 0.12)));
     this.add('lamp', brush(new THREE.Vector3(cx - 0.14, max.y - 1.1, min.z - 0.12), new THREE.Vector3(cx + 0.14, max.y - 0.8, min.z - 0.01)));
+  }
+
+  /** solid wall / ceiling slab: every face uses the wall texture */
+  private solid(b: Box) {
+    const min = new THREE.Vector3(...b.min), max = new THREE.Vector3(...b.max);
+    this.add('wall', brush(min, max, { top: 4, side: 4, bottom: 4, aoLow: 0.5 }));
   }
 
   private lowWall(b: Box) {

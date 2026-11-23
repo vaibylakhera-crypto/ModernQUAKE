@@ -54,7 +54,7 @@ const server = http.createServer((req, res) => {
 //  state: 'lobby' (warmup, scores not counted) -> 'playing' (host pressed START) -> 'ended' (results) -> back to 'lobby'
 const rooms = new Map();
 let nextId = 1, nextBot = 1000;
-const MAPS = new Set(['boreal', 'void', 'spire', 'bastion']);
+const MAPS = new Set(['boreal', 'void', 'spire', 'bastion', 'foundry', 'crypt', 'ring']);
 const BOT_POOL = [
   { name: 'RAZOR', weapon: 'plasma' }, { name: 'VEX', weapon: 'plasma' }, { name: 'KRAIT', weapon: 'rocket' }, { name: 'NYX', weapon: 'nailer' },
   { name: 'ONYX', weapon: 'plasma' }, { name: 'HEX', weapon: 'rocket' }, { name: 'MORROW', weapon: 'nailer' }, { name: 'ZOLA', weapon: 'plasma' },

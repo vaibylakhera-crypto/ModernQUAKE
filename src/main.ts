@@ -9,7 +9,7 @@ import { Arena } from './arena';
 import { kitOptions } from './kit';
 import { getQuality } from './quality';
 import { Player, PM, Input } from './player';
-import { boxes, MAP_ID, BoosterId, pads as levelPads, teleporters as levelTeleporters } from './level';
+import { boxes, MAP_ID, BoosterId, THEME, pads as levelPads, teleporters as levelTeleporters, pickups as levelPickups, spawns as levelSpawns } from './level';
 import { BOOSTERS } from './pickups';
 import { Viewmodel } from './viewmodel';
 import { Loadout } from './loadout';
@@ -83,7 +83,7 @@ if (Q.liveSky && !PLAIN_SKY) {                               // high: reflection
 
 const stars = PLAIN_SKY ? new Stars(sky.bandN, 2600, true) : new Stars(sky.bandN, SKYP.stars);
 scene.add(stars.mesh);
-scene.fog = STYLE === 'kit' ? new THREE.FogExp2(0x05070f, 0.0025) : new THREE.FogExp2(0x060405, 0.0075);   // depth cue: far platforms sink into the void
+scene.fog = STYLE === 'kit' ? new THREE.FogExp2(0x05070f, 0.0025) : new THREE.FogExp2(THEME.fog, THEME.fogD);   // depth cue: far platforms sink into the void
 
 const surround = buildSurround(); if (MAP === 'boreal' && !PLAIN_SKY) scene.add(surround.group);
 const world = STYLE === 'kit' ? new World(Q) : new Arena(Q);
@@ -96,12 +96,12 @@ if (STYLE === 'kit') {
   scene.add(new THREE.AmbientLight(0x6070a0, Q.pbr ? 0.2 : 0.7));
 } else {
   // alien fortress: dim, warm from above, near-black from below, faint sickly-green bounce
-  scene.add(new THREE.HemisphereLight(0xd8c4a8, 0x141016, Q.pbr ? 1.2 : 2.0));
-  scene.add(new THREE.AmbientLight(0x3a4a40, Q.pbr ? 0.25 : 0.6));
+  scene.add(new THREE.HemisphereLight(THEME.hemiSky, THEME.hemiGround, Q.pbr ? 1.2 : 2.0));
+  scene.add(new THREE.AmbientLight(THEME.ambient, Q.pbr ? 0.25 : 0.6));
 }
-const key = new THREE.DirectionalLight(STYLE === 'kit' ? 0xffe2c0 : 0xffc890, Q.pbr ? 3.2 : 2.4);
+const key = new THREE.DirectionalLight(STYLE === 'kit' ? 0xffe2c0 : THEME.key, Q.pbr ? 3.2 : 2.4);
 key.position.copy(sky.sunDir).multiplyScalar(100); scene.add(key);
-const rim = new THREE.DirectionalLight(STYLE === 'kit' ? 0x7a8cff : 0x5a6a90, Q.pbr ? 1.6 : 1.0); rim.position.set(-40, 20, 60); scene.add(rim);
+const rim = new THREE.DirectionalLight(STYLE === 'kit' ? 0x7a8cff : THEME.rim, Q.pbr ? 1.6 : 1.0); rim.position.set(-40, 20, 60); scene.add(rim);
 
 let composer: EffectComposer | null = null;
 // ---- safety nets for phone GPUs ----
@@ -807,4 +807,4 @@ function frame(now: number) {
 requestAnimationFrame(frame);
 
 // dev/test hook
-(window as any).__game = { bots, net, remotes, menu, stars, scene, grantBooster, boost, level: { pads: levelPads, teleporters: levelTeleporters }, get mode() { return mode; }, get matchState() { return matchState; }, scores: () => board(), doFire, player, camera, vm, loadout, combat, pickupSys, targets, say, die, renderer, world, Q, get scale() { return renderScale; }, setLook: (y: number, p: number) => { yaw = y; pitch = p; }, PM };
+(window as any).__game = { bots, net, remotes, menu, stars, scene, grantBooster, boost, level: { pads: levelPads, teleporters: levelTeleporters, boxes, pickups: levelPickups, spawns: levelSpawns }, get mode() { return mode; }, get matchState() { return matchState; }, scores: () => board(), doFire, player, camera, vm, loadout, combat, pickupSys, targets, say, die, renderer, world, Q, get scale() { return renderScale; }, setLook: (y: number, p: number) => { yaw = y; pitch = p; }, PM };
