@@ -122,5 +122,11 @@ export class Pickups {
     return got;
   }
 
+  /** a bot takes item i (same respawn timers as for the player) */
+  claim(i: number, t: number): PickupDef | null {
+    const it = this.items[i]; if (!it || !it.active) return null;
+    it.active = false; it.respawnAt = t + RESPAWN[it.def.kind]; it.item.visible = it.label.visible = it.col.visible = false; return it.def;
+  }
+
   respawnAll() { for (const it of this.items) { it.active = true; it.item.visible = it.label.visible = it.col.visible = true; } }
 }

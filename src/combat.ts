@@ -397,6 +397,13 @@ export class Combat {
     }
   }
 
+  /** live projectiles near a point (so bots can dodge them); ignores the shooter's own */
+  incoming(p: THREE.Vector3, owner: string, radius = 16): { pos: THREE.Vector3; vel: THREE.Vector3; splash: number }[] {
+    const out: { pos: THREE.Vector3; vel: THREE.Vector3; splash: number }[] = [];
+    for (const pr of this.projs) { if (pr.owner === owner || pr.pos.distanceToSquared(p) > radius * radius) continue; out.push({ pos: pr.pos, vel: pr.vel, splash: WEAPON_DEFS[pr.kind].stats.splash ?? 0 }); }
+    return out;
+  }
+
   /** drawing-buffer height in pixels (particle sizes are in world metres) */
   setViewHeight(h: number) { this.particles.setViewHeight(h); }
 

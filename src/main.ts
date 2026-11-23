@@ -25,6 +25,7 @@ import { setupAssets } from './assets';
 import * as sfx from './sfx';
 import { Gyro } from './gyro';
 import { LiftSystem } from './lifts';
+import * as navMod from './nav';
 import { TEAMS } from './teams';
 import { Ctf } from './ctf';
 import { Voice, QUICK, quickText, VoiceMode } from './comms';
@@ -226,6 +227,7 @@ if (TOUCH) {
 }
 const gyro = new Gyro();
 const liftSys = new LiftSystem();
+const riders = () => [player, ...bots.filter(b => b.alive).map(b => b.rider)];
 let aimSens = 1;
 try { aimSens = Number(localStorage.getItem('mq-sens')) || 1; } catch { /* ignore */ }
 
@@ -365,6 +367,9 @@ const botCtx: BotCtx = {
     else say(`YOU FRAGGED ${b.name}`);
   },
   onHit() { /* feedback comes from combat.landed */ },
+  itemActive: i => !!pickupSys.items[i]?.active,
+  claimItem: i => pickupSys.claim(i, performance.now() / 1000),
+  incoming: (p, owner) => combat.incoming(p, owner),
 };
 let wantBots: BotDef[] = [];
 const sameBot = (b: Bot, d: BotDef) => b.name === d.name && b.netId === (d.netId ?? 0) && b.team === (d.team ?? 0);
@@ -906,7 +911,7 @@ function frame(now: number) {
       jumpPressed: jumpQueued, crouch: keys.has('KeyC') || keys.has('ControlLeft') || !!touch?.crouch, yaw,
     };
     jumpQueued = false;
-    liftSys.update((Date.now() + timeOffset) / 1000, [player]);
+    liftSys.update((Date.now() + timeOffset) / 1000, riders());
     player.step(input, DT);
     acc -= DT;
   }
@@ -954,4 +959,4 @@ function frame(now: number) {
 requestAnimationFrame(frame);
 
 // dev/test hook
-(window as any).__game = { bots, net, remotes, menu, stars, scene, voice, get ts() { return ts; }, myTeam, flagSt: () => flagSt, teamOfOwner, soloKill, grantBooster, boost, liftSys, lifts: __lifts, level: { pads: levelPads, teleporters: levelTeleporters, boxes, pickups: levelPickups, spawns: levelSpawns }, get mode() { return mode; }, get matchState() { return matchState; }, scores: () => board(), doFire, player, camera, vm, loadout, combat, pickupSys, targets, say, die, renderer, world, Q, get scale() { return renderScale; }, setLook: (y: number, p: number) => { yaw = y; pitch = p; }, PM };
+(window as any).__game = { bots, net, remotes, menu, stars, scene, riders, nav: navMod, voice, get ts() { return ts; }, myTeam, flagSt: () => flagSt, teamOfOwner, soloKill, grantBooster, boost, liftSys, lifts: __lifts, level: { pads: levelPads, teleporters: levelTeleporters, boxes, pickups: levelPickups, spawns: levelSpawns }, get mode() { return mode; }, get matchState() { return matchState; }, scores: () => board(), doFire, player, camera, vm, loadout, combat, pickupSys, targets, say, die, renderer, world, Q, get scale() { return renderScale; }, setLook: (y: number, p: number) => { yaw = y; pitch = p; }, PM };
