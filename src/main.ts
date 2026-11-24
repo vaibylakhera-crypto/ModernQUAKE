@@ -6,6 +6,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { Sky, Stars, SKY_PRESETS } from './sky';
 import { World } from './world';
 import { Arena } from './arena';
+import { updateFireLights } from './torches';
 import { kitOptions } from './kit';
 import { getQuality } from './quality';
 import { Player, PM, Input } from './player';
@@ -1063,6 +1064,7 @@ function frame(now: number) {
   if (!Q.liveSky || PLAIN_SKY) { const a = now / 1000 * 0.004; scene.backgroundRotation.y = a; stars.mesh.rotation.y = a; }
   if (Q.liveSky && !PLAIN_SKY) sky.update(now / 1000, camera);
   world.update(now / 1000, (Date.now() + timeOffset) / 1000); surround.update(now / 1000);
+  updateFireLights(camera.position, now / 1000, Math.min(0.05, frameMs / 1000));
   hud();
   if (composer) composer.render(); else renderer.render(scene, camera);
   vm.update(Math.min(0.05, frameMs / 1000), { speed: player.speedXZ, grounded: player.grounded, lookDX, lookDY, spinning: firing() && locked() && vm.current === 'nailer', beam: firing() && locked() && vm.current === 'arc' }); lookDX = lookDY = 0;
