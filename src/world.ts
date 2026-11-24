@@ -33,7 +33,7 @@ export class World {
     for (const b of boxes) {
       if (b.kind === 'pillar') this.buildPillar(b);
       else if (b.kind === 'crates') this.buildCrates(b);
-      else this.buildPlatform(b);
+      else if (b.kind !== 'prop') this.buildPlatform(b);
     }
     const r = mergeStatic(this.arch);
     this.stats = { pieces: r.before, merged: r.after };

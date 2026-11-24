@@ -121,7 +121,7 @@ export class Arena {
   private parts = new Map<Part, THREE.BufferGeometry[]>();
   constructor(private q: Quality) {
     pads.forEach((p, i) => this.group.add(buildPad(p, i, { beams: q.padBeams })));
-    this.group.add(buildTorches(boxes));
+    this.group.add(buildTorches());
     for (const t of teleporters) { const g = buildTeleporter(t, q.padBeams); this.group.add(g.gate, g.exit); this.spin.push(...g.spin); }
   }
   private spin: THREE.Object3D[] = [];
@@ -137,7 +137,7 @@ export class Arena {
       else if (b.kind === 'block') this.solid(b);
       else if (b.kind === 'floor') this.slab(b);
       else if (b.kind === 'light') this.add('lamp', brush(new THREE.Vector3(...b.min), new THREE.Vector3(...b.max)));
-      else if (b.kind === 'lift') { /* drawn as a moving mesh */ }
+      else if (b.kind === 'lift' || b.kind === 'prop') { /* lifts are moving meshes; props are drawn by torches.ts */ }
       else this.platform(b, i);
     });
     const mat = (part: Part): THREE.Material => {

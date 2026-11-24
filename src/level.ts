@@ -1,6 +1,6 @@
 // Level data for every map. Pure data (no three.js) so the server could share it later.
 // The map is chosen once per page load from ?map=… ; everything else imports the resolved arrays below.
-export interface Box { min: [number, number, number]; max: [number, number, number]; tint?: number; kind?: 'pillar' | 'crates' | 'block' | 'floor' | 'light' | 'lift' }
+export interface Box { min: [number, number, number]; max: [number, number, number]; tint?: number; kind?: 'pillar' | 'crates' | 'block' | 'floor' | 'light' | 'lift' | 'prop' }
 
 export type BounceTier = 'small' | 'medium' | 'mega';
 export interface BouncePad { kind: 'bounce'; pos: [number, number, number]; tier: BounceTier }
@@ -376,7 +376,65 @@ const DEF = MAPS[MAP_ID];
 export const lifts = DEF.lifts ?? [];
 /** each lift's collision box (moved every step by lifts.ts) shares the same list the player collides with */
 export const liftBoxes: Box[] = lifts.map(l => ({ min: [l.x0, l.y0 - 0.5, l.z0] as [number, number, number], max: [l.x1, l.y0, l.z1] as [number, number, number], kind: 'lift' as const }));
-export const boxes = [...DEF.boxes, ...liftBoxes];
+/**
+ * Fire: stone stands (solid, ~1 m tall) at floor corners and along long edges, fire bowls on top of tall pillars, and wall sconces on the
+ * inside of sealed buildings. `pos` is where the flame starts; stands add a small solid prop box so nobody walks through them.
+ */
+export interface Torch { kind: 'stand' | 'cap' | 'sconce'; pos: [number, number, number]; floor: number; n?: [number, number] }
+function planTorches(base: Box[]): { torches: Torch[]; props: Box[] } {
+  const torches: Torch[] = [], props: Box[] = [];
+  const near = (p: number[], q: number[], r: number) => Math.hypot(p[0] - q[0], p[2] - q[2]) < r && Math.abs(p[1] - q[1]) < 3;
+  const clear = (c: number[], gateR = 3.5) => !(DEF.pads.some(p => near(c, p.pos, 3)) || DEF.pickups.some(p => near(c, p.pos, 2.5)) || DEF.spawns.some(s => near(c, s.pos, 2.5)) || DEF.teleporters.some(t => near(c, t.pos, gateR) || near(c, t.dest, 2.5)));
+  const isFloor = (b: Box) => (!b.kind || b.kind === 'floor') && (b.max[0] - b.min[0]) * (b.max[2] - b.min[2]) >= 28 && b.max[0] - b.min[0] >= 3 && b.max[2] - b.min[2] >= 3;
+  // 1) bowls on top of free-standing pillars
+  for (const b of base) {
+    if (b.kind !== 'pillar' || b.max[1] - b.min[1] < 3) continue;
+    const cx = (b.min[0] + b.max[0]) / 2, cz = (b.min[2] + b.max[2]) / 2, top = b.max[1];
+    if (base.some(o => o !== b && cx > o.min[0] && cx < o.max[0] && cz > o.min[2] && cz < o.max[2] && o.min[1] < top + 0.5 && o.max[1] > top - 0.05)) continue;
+    torches.push({ kind: 'cap', pos: [cx, top + 0.1, cz], floor: b.min[1] });
+  }
+  // 2) stone stands on the big floors
+  const cand: [number, number, number][] = [];
+  for (const b of base) {
+    if (!isFloor(b)) continue;
+    const sx = b.max[0] - b.min[0], sz = b.max[2] - b.min[2], top = b.max[1], i = 1.3;
+    const xs = [b.min[0] + i, b.max[0] - i], zs = [b.min[2] + i, b.max[2] - i];
+    for (const x of xs) for (const z of zs) cand.push([x, top, z]);
+    if (sx > 20) for (const z of zs) for (let x = b.min[0] + 12; x < b.max[0] - 6; x += 12) cand.push([x, top, z]);
+    if (sz > 20) for (const x of xs) for (let z = b.min[2] + 12; z < b.max[2] - 6; z += 12) cand.push([x, top, z]);
+  }
+  for (const c of cand) {
+    if (torches.length >= 40) break;
+    if (torches.some(k => near(c, k.pos, 6)) || !clear(c)) continue;
+    const solid = (o: Box) => o.kind !== 'light' && o.kind !== 'lift';
+    if (base.some(o => solid(o) && c[0] > o.min[0] - 0.6 && c[0] < o.max[0] + 0.6 && c[2] > o.min[2] - 0.6 && c[2] < o.max[2] + 0.6 && c[1] + 0.5 > o.min[1] + 0.05 && c[1] + 0.5 < o.max[1])) continue;
+    if (!base.some(o => isFloor(o) && Math.abs(o.max[1] - c[1]) < 0.1 && c[0] - 0.6 > o.min[0] && c[0] + 0.6 < o.max[0] && c[2] - 0.6 > o.min[2] && c[2] + 0.6 < o.max[2])) continue;
+    torches.push({ kind: 'stand', pos: [c[0], c[1] + 1.35, c[2]], floor: c[1] });
+    props.push({ min: [c[0] - 0.45, c[1], c[2] - 0.45], max: [c[0] + 0.45, c[1] + 1.0, c[2] + 0.45], kind: 'prop' });
+  }
+  // 3) sconces on the inner face of tall walls (sealed buildings), one row per floor level beside the wall
+  for (const w of base) {
+    if (w.kind !== 'block' || w.max[1] - w.min[1] < 8) continue;
+    const sx = w.max[0] - w.min[0], sz = w.max[2] - w.min[2]; if (Math.min(sx, sz) > 1.5) continue;
+    const alongX = sx > sz;                                              // a wall running along x faces z, and vice versa
+    const face = alongX ? (Math.abs(w.min[2]) < Math.abs(w.max[2]) ? w.min[2] : w.max[2]) : (Math.abs(w.min[0]) < Math.abs(w.max[0]) ? w.min[0] : w.max[0]);
+    const n: [number, number] = alongX ? [0, face > 0 ? -1 : 1] : [face > 0 ? -1 : 1, 0];
+    const lo = alongX ? w.min[0] : w.min[2], hi = alongX ? w.max[0] : w.max[2];
+    const tops = new Set<number>(); for (const f of base) if (isFloor(f) && (alongX ? Math.abs(f.min[2] - face) < 6 || Math.abs(f.max[2] - face) < 6 : Math.abs(f.min[0] - face) < 6 || Math.abs(f.max[0] - face) < 6)) tops.add(Math.round(f.max[1] * 2) / 2);
+    for (const top of tops) {
+      const y = top + 2.5; if (y > w.max[1] - 1.5) continue;
+      for (let t = lo + 4; t < hi - 3; t += 8.5) {
+        const p: [number, number, number] = alongX ? [t, y, face + n[1] * 0.2] : [face + n[0] * 0.2, y, t];
+        if (torches.length >= 60 || !clear(p, 3.6) || torches.some(k => k.kind === 'sconce' && near(k.pos, p, 5))) continue;
+        torches.push({ kind: 'sconce', pos: p, floor: top, n });
+      }
+    }
+  }
+  return { torches, props };
+}
+const FIRE = planTorches([...DEF.boxes, ...liftBoxes]);
+export const torches = FIRE.torches;
+export const boxes = [...DEF.boxes, ...liftBoxes, ...FIRE.props];
 export const pads = DEF.pads;
 export const spawns = DEF.spawns;
 export const pickups = DEF.pickups;
