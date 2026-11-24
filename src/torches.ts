@@ -6,6 +6,13 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { torches, Torch, THEME } from './level';
 
 export const torchTime = { value: 0 };
+let maxLights = 2, glowMesh: THREE.Object3D | null = null, sparkMesh: THREE.Object3D | null = null;
+/** effect level: 0 full · 1 no real lights · 2 also no sparks or floor glow (the game steps this up by itself when the frame rate stays low) */
+export function setFireQuality(level: number, phone = false) {
+  maxLights = level >= 1 ? 0 : phone ? 1 : 2;
+  if (sparkMesh) sparkMesh.visible = level < 2; if (glowMesh) glowMesh.visible = level < 2;
+  for (const l of fireLights) if (maxLights === 0) l.intensity = 0;
+}
 
 // fire colour follows each map's lamp colour, pushed toward gold so it always reads as fire
 const FIRE = new THREE.Color(THEME.lamp).lerp(new THREE.Color(1.0, 0.55, 0.14), 0.62);
@@ -96,14 +103,14 @@ export function buildTorches(): THREE.Group {
   if (stone.length) g.add(new THREE.Mesh(mergeGeometries(stone)!, new THREE.MeshLambertMaterial({ color: 0x6a6258 })));
   if (iron.length) g.add(new THREE.Mesh(mergeGeometries(iron)!, new THREE.MeshLambertMaterial({ color: 0x2c2826 })));
   if (embers.length) g.add(new THREE.Mesh(mergeGeometries(embers)!, new THREE.MeshBasicMaterial({ color: 0xff7a22 })));
-  const gm = new THREE.Mesh(mergeGeometries(glows)!, am(glowVert, glowFrag)); gm.renderOrder = 1; gm.frustumCulled = false; g.add(gm);
+  const gm = new THREE.Mesh(mergeGeometries(glows)!, am(glowVert, glowFrag)); gm.renderOrder = 1; gm.frustumCulled = false; g.add(gm); glowMesh = gm;
   const fm = new THREE.Mesh(mergeGeometries(flames)!, am(flameVert, flameFrag)); fm.renderOrder = 4; fm.frustumCulled = false; g.add(fm);
   // rising sparks
   const sg = new THREE.BufferGeometry(), np = sparkPts.length / 6, ctr = new Float32Array(np * 3), sd = new Float32Array(np * 3);
   for (let k = 0; k < np; k++) { ctr.set(sparkPts.slice(k * 6, k * 6 + 3), k * 3); sd.set(sparkPts.slice(k * 6 + 3, k * 6 + 6), k * 3); }
   sg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(np * 3), 3)); sg.setAttribute('aCenter', new THREE.BufferAttribute(ctr, 3)); sg.setAttribute('aSeed', new THREE.BufferAttribute(sd, 3));
   const sp = new THREE.Points(sg, new THREE.ShaderMaterial({ vertexShader: sparkVert, fragmentShader: sparkFrag, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, uniforms: { uTime: torchTime, uFire: fireU } }));
-  sp.frustumCulled = false; sp.renderOrder = 5; g.add(sp);
+  sp.frustumCulled = false; sp.renderOrder = 5; g.add(sp); sparkMesh = sp;
   g.add(...fireLights);
   return g;
 }
@@ -118,7 +125,7 @@ export function updateFireLights(cam: THREE.Vector3, t: number, dt: number) {
   const ranked = torches.map((q, i) => ({ i, d: Math.hypot(q.pos[0] - cam.x, q.pos[2] - cam.z) + Math.abs(q.pos[1] - cam.y) * 0.5 })).sort((a, b) => a.d - b.d).slice(0, 2);
   const k = Math.min(1, dt * 6);
   fireLights.forEach((l, n) => {
-    const r = ranked[n]; if (!r) { l.intensity = 0; return; }
+    const r = n < maxLights ? ranked[n] : undefined; if (!r) { l.intensity = 0; return; }
     const q = torches[r.i]; _t.set(q.pos[0] + (q.n ? q.n[0] * 0.6 : 0), q.pos[1] + 0.9, q.pos[2] + (q.n ? q.n[1] * 0.6 : 0));
     if (lightK[n] === 0) lightPos[n].copy(_t); else lightPos[n].lerp(_t, k);
     lightK[n] = 1; l.position.copy(lightPos[n]);

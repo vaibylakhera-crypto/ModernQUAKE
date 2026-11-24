@@ -6,7 +6,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { Sky, Stars, SKY_PRESETS } from './sky';
 import { World } from './world';
 import { Arena } from './arena';
-import { updateFireLights } from './torches';
+import { updateFireLights, setFireQuality } from './torches';
 import { kitOptions } from './kit';
 import { getQuality } from './quality';
 import { Player, PM, Input } from './player';
@@ -153,12 +153,20 @@ addEventListener('resize', () => {
 });
 
 // adaptive resolution: keep >= ~55 fps by trading render scale (weak GPUs); recovers when there is headroom
-let frames = 0, accMs = 0, goodSecs = 0;
+let frames = 0, accMs = 0, goodSecs = 0, lowSecs = 0, fxLevel = 0, lastFps = 0;
+// diagnostics overlay: add ?perf=1 to the address, or tap the top centre of the screen three times quickly
+const perfEl = document.getElementById('perf')!;
+if (new URLSearchParams(location.search).has('perf')) document.body.classList.add('perf');
+{ let taps: number[] = []; addEventListener('touchstart', e => { const t = e.touches[0]; if (!t || t.clientY > 70 || Math.abs(t.clientX - innerWidth / 2) > innerWidth * 0.2) return; const n = performance.now(); taps = taps.filter(x => n - x < 900); taps.push(n); if (taps.length >= 3) { taps = []; document.body.classList.toggle('perf'); } }, { passive: true }); }
 function adapt(ms: number) {
   accMs += ms; frames++;
   if (accMs < 1000) return;
   const avg = accMs / frames; frames = 0; accMs = 0;
   const med = document.getElementById('medal'); if (med) med.textContent = `${Math.round(1000 / avg)} FPS · ${Q.tier.toUpperCase()} · RES ${Math.round(renderScale * 100)}%`;
+  lastFps = Math.round(1000 / avg);
+  // already at the lowest resolution and still slow: switch effects off, one step at a time
+  if (avg > 24 && renderScale <= Q.minScale + 0.001) { if (++lowSecs >= 3 && fxLevel < 2) { fxLevel++; setFireQuality(fxLevel, TOUCH); lowSecs = 0; } } else lowSecs = 0;
+  if (document.body.classList.contains('perf')) { const a = sfx.stats(), ri = renderer.info.render; perfEl.textContent = `${lastFps} FPS  ·  ${Q.tier.toUpperCase()}  ·  res ${Math.round(renderScale * 100)}%\neffects level ${fxLevel}  ·  draws ${ri.calls}  ·  tris ${Math.round(ri.triangles / 1000)}k\naudio ${a.state}  ·  voices ${a.live}  ·  music ${music.playing ? 'on' : 'off'}\nping ${net.online ? Math.round((net as any).ping ?? 0) + ' ms' : 'solo'}`; }
   if (avg > 18.5 && renderScale > Q.minScale) { renderScale = Math.max(Q.minScale, renderScale - 0.08); applyRes(); goodSecs = 0; }
   else if (avg < (TOUCH ? 17.4 : 12.5) && renderScale < Q.renderScale) {
     // phones are capped at 60 fps, so "fast" means holding the cap; climb back slowly after 3 steady seconds
@@ -172,6 +180,7 @@ let jumpQueued = false;
 let yaw = 0, pitch = 0;
 const startEl = document.getElementById('start')!;
 const TOUCH = touchDevice || new URLSearchParams(location.search).has('touch');
+setFireQuality(0, TOUCH);
 if (new URLSearchParams(location.search).has('fps')) document.body.classList.add('fps');
 let touchPlaying = false;
 const locked = () => touchPlaying || document.pointerLockElement === renderer.domElement;
@@ -277,6 +286,7 @@ const vitalsEl = document.getElementById('vitals')!, pnameEl = document.getEleme
 let shownHp = -1, shownAr = -1, dmgDirT = 0;
 /** red arc around the crosshair pointing toward whoever hurt us (ax, az: world direction to the attacker) */
 function showDamageDir(ax: number, az: number) {
+  combat.shake = Math.max(combat.shake, 0.55);                // a kick on the view when you are hit
   const fx = -Math.sin(yaw), fz = -Math.cos(yaw), rx = Math.cos(yaw), rz = -Math.sin(yaw);
   const rel = Math.atan2(ax * rx + az * rz, ax * fx + az * fz);
   dmgDirEl.style.transform = `rotate(${rel.toFixed(3)}rad)`; dmgDirT = 1;

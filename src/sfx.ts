@@ -49,6 +49,8 @@ export function unlock() {
 }
 export function setVolume(v: number) { volume = v; if (masterGain) masterGain.gain.value = v; try { localStorage.setItem('mq-vol', String(v)); } catch { /* ignore */ } }
 export function getVolume() { return volume; }
+/** for the performance overlay */
+export function stats() { return { state: ctx ? ((ctx as AudioContext).state ?? 'offline') : 'none', live }; }
 /** the shared audio context (music uses it so there is only one) */
 export function audioContext(): AudioContext | null { return ctx as AudioContext | null; }
 const ready = () => !!(ctx && master && noise && verb && slapIn && ((ctx as AudioContext).state === undefined || (ctx as AudioContext).state === 'running') && live < 28);

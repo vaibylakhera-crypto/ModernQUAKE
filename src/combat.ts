@@ -194,12 +194,19 @@ export class Combat {
   private rings: { m: THREE.Mesh; life: number; r: number }[] = [];
   private arc: { core: THREE.Mesh; glow: THREE.Mesh }[] = []; private arcT = 0; private arcA = new THREE.Vector3(); private arcB = new THREE.Vector3();
   shake = 0;
+  /** scorch marks left on walls and floors by hits; the oldest are reused */
+  private decals: { m: THREE.Mesh; life: number }[] = []; private decalNext = 0;
   /** OVERDRIVE booster: multiplies the local player's damage */
   dmgMul = 1;
   private bolts: THREE.Object3D[] = []; private rocketProto!: THREE.Group;
 
   constructor(private scene: THREE.Scene, public hooks: CombatHooks) {
     this.particles = new Particles(scene); this.tracers = new Tracers(scene);
+    { const cv = document.createElement('canvas'); cv.width = cv.height = 64; const g = cv.getContext('2d')!;
+      const gr = g.createRadialGradient(32, 32, 2, 32, 32, 30); gr.addColorStop(0, 'rgba(0,0,0,.95)'); gr.addColorStop(0.4, 'rgba(14,8,5,.8)'); gr.addColorStop(0.62, 'rgba(150,120,90,.4)'); gr.addColorStop(0.8, 'rgba(60,45,35,.25)'); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(0, 0, 64, 64);
+      for (let i = 0; i < 14; i++) { const a = Math.random() * 6.28, r = 12 + Math.random() * 14; g.fillStyle = 'rgba(0,0,0,.5)'; g.beginPath(); g.arc(32 + Math.cos(a) * r, 32 + Math.sin(a) * r, 1.5 + Math.random() * 2.5, 0, 6.28); g.fill(); }
+      const tex = new THREE.CanvasTexture(cv), geo = new THREE.PlaneGeometry(1, 1);
+      for (let i = 0; i < 40; i++) { const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 })); m.visible = false; m.renderOrder = 2; scene.add(m); this.decals.push({ m, life: 0 }); } }
     for (let i = 0; i < 10; i++) {
       const core = new THREE.Mesh(unitCyl, new THREE.MeshBasicMaterial({ color: 0xe8e0ff, fog: false, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
       const glow = new THREE.Mesh(unitCyl, new THREE.MeshBasicMaterial({ color: 0x8f6bff, fog: false, transparent: true, opacity: 0.45, blending: THREE.AdditiveBlending, depthWrite: false }));
@@ -343,7 +350,13 @@ export class Combat {
   }
 
   // ───── effects ─────
+  /** a dark scorch mark stuck to the surface (p, with surface normal n) */
+  decal(p: THREE.Vector3, n: THREE.Vector3, size: number) {
+    const d = this.decals[this.decalNext++ % this.decals.length]; d.life = 14;
+    d.m.position.copy(p).addScaledVector(n, 0.025); d.m.lookAt(p.x + n.x, p.y + n.y, p.z + n.z); d.m.rotateZ(Math.random() * 6.28); d.m.scale.setScalar(size * (0.8 + Math.random() * 0.4)); d.m.visible = true; (d.m.material as THREE.MeshBasicMaterial).opacity = 1;
+  }
   sparks(p: THREE.Vector3, n: THREE.Vector3, color: number, count: number) {
+    if (count >= 3) this.decal(p, n, count >= 10 ? 0.75 : 0.3);
     for (let i = 0; i < count; i++) {
       const v = new THREE.Vector3(Math.random() - .5, Math.random() - .5, Math.random() - .5).multiplyScalar(3).addScaledVector(n, 3 + Math.random() * 4);
       this.particles.spawn(p.clone().addScaledVector(n, 0.04), v, 0.25 + Math.random() * 0.3, 0.18, 0.03, color, { grav: 9 });
@@ -469,6 +482,7 @@ export class Combat {
       const k = 1 - r.life / 0.35; r.m.scale.setScalar(r.r * (0.3 + k * 1.0)); (r.m.material as THREE.MeshBasicMaterial).opacity = (1 - k) * 0.8;
     }
     this.particles.update(dt); this.tracers.update(dt);
+    for (const d of this.decals) if (d.life > 0) { d.life -= dt; (d.m.material as THREE.MeshBasicMaterial).opacity = Math.min(1, d.life / 4); if (d.life <= 0) d.m.visible = false; }
     this.shake = Math.max(0, this.shake - dt * 3);
   }
 
