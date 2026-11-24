@@ -391,6 +391,7 @@ function planTorches(base: Box[]): { torches: Torch[]; props: Box[] } {
     if (b.kind !== 'pillar' || b.max[1] - b.min[1] < 3) continue;
     const cx = (b.min[0] + b.max[0]) / 2, cz = (b.min[2] + b.max[2]) / 2, top = b.max[1];
     if (base.some(o => o !== b && cx > o.min[0] && cx < o.max[0] && cz > o.min[2] && cz < o.max[2] && o.min[1] < top + 0.5 && o.max[1] > top - 0.05)) continue;
+    if (torches.filter(k => k.kind === 'cap').length >= 3 || torches.some(k => near(k.pos, [cx, top, cz], 12))) continue;
     torches.push({ kind: 'cap', pos: [cx, top + 0.1, cz], floor: b.min[1] });
   }
   // 2) stone stands on the big floors
@@ -404,8 +405,8 @@ function planTorches(base: Box[]): { torches: Torch[]; props: Box[] } {
     if (sz > 20) for (const x of xs) for (let z = b.min[2] + 12; z < b.max[2] - 6; z += 12) cand.push([x, top, z]);
   }
   for (const c of cand) {
-    if (torches.length >= 40) break;
-    if (torches.some(k => near(c, k.pos, 6)) || !clear(c)) continue;
+    if (torches.filter(k => k.kind === 'stand').length >= 4) break;
+    if (torches.some(k => near(c, k.pos, 15)) || !clear(c)) continue;
     const solid = (o: Box) => o.kind !== 'light' && o.kind !== 'lift';
     if (base.some(o => solid(o) && c[0] > o.min[0] - 0.6 && c[0] < o.max[0] + 0.6 && c[2] > o.min[2] - 0.6 && c[2] < o.max[2] + 0.6 && c[1] + 0.5 > o.min[1] + 0.05 && c[1] + 0.5 < o.max[1])) continue;
     if (!base.some(o => isFloor(o) && Math.abs(o.max[1] - c[1]) < 0.1 && c[0] - 0.6 > o.min[0] && c[0] + 0.6 < o.max[0] && c[2] - 0.6 > o.min[2] && c[2] + 0.6 < o.max[2])) continue;
@@ -423,9 +424,9 @@ function planTorches(base: Box[]): { torches: Torch[]; props: Box[] } {
     const tops = new Set<number>(); for (const f of base) if (isFloor(f) && (alongX ? Math.abs(f.min[2] - face) < 6 || Math.abs(f.max[2] - face) < 6 : Math.abs(f.min[0] - face) < 6 || Math.abs(f.max[0] - face) < 6)) tops.add(Math.round(f.max[1] * 2) / 2);
     for (const top of tops) {
       const y = top + 2.5; if (y > w.max[1] - 1.5) continue;
-      for (let t = lo + 4; t < hi - 3; t += 8.5) {
+      for (let t = lo + 6; t < hi - 4; t += 18) {
         const p: [number, number, number] = alongX ? [t, y, face + n[1] * 0.2] : [face + n[0] * 0.2, y, t];
-        if (torches.length >= 60 || !clear(p, 3.6) || torches.some(k => k.kind === 'sconce' && near(k.pos, p, 5))) continue;
+        if (torches.filter(k => k.kind === 'sconce').length >= 4 || !clear(p, 3.6) || torches.some(k => k.kind === 'sconce' && near(k.pos, p, 16))) continue;
         torches.push({ kind: 'sconce', pos: p, floor: top, n });
       }
     }

@@ -10,7 +10,7 @@ import { updateFireLights } from './torches';
 import { kitOptions } from './kit';
 import { getQuality } from './quality';
 import { Player, PM, Input } from './player';
-import { boxes, MAP_ID, BoosterId, THEME, pads as levelPads, teleporters as levelTeleporters, pickups as levelPickups, spawns as levelSpawns } from './level';
+import { torches as levelTorches, boxes, MAP_ID, BoosterId, THEME, pads as levelPads, teleporters as levelTeleporters, pickups as levelPickups, spawns as levelSpawns } from './level';
 import { BOOSTERS } from './pickups';
 import { Viewmodel } from './viewmodel';
 import { Loadout } from './loadout';
@@ -1075,4 +1075,4 @@ function frame(now: number) {
 requestAnimationFrame(frame);
 
 // dev/test hook
-(window as any).__game = { bots, net, remotes, menu, stars, scene, sfx, Music, music, announcer, feed, riders, nav: navMod, voice, get ts() { return ts; }, myTeam, flagSt: () => flagSt, teamOfOwner, soloKill, grantBooster, boost, liftSys, lifts: __lifts, level: { pads: levelPads, teleporters: levelTeleporters, boxes, pickups: levelPickups, spawns: levelSpawns }, get mode() { return mode; }, get matchState() { return matchState; }, scores: () => board(), doFire, player, camera, vm, loadout, combat, pickupSys, targets, say, die, renderer, world, Q, get scale() { return renderScale; }, setLook: (y: number, p: number) => { yaw = y; pitch = p; }, PM };
+(window as any).__game = { bots, net, remotes, menu, stars, scene, sfx, Music, music, announcer, feed, riders, nav: navMod, voice, get ts() { return ts; }, myTeam, flagSt: () => flagSt, teamOfOwner, soloKill, grantBooster, boost, liftSys, lifts: __lifts, level: { torches: levelTorches, pads: levelPads, teleporters: levelTeleporters, boxes, pickups: levelPickups, spawns: levelSpawns }, get mode() { return mode; }, get matchState() { return matchState; }, scores: () => board(), doFire, player, camera, vm, loadout, combat, pickupSys, targets, say, die, renderer, world, Q, get scale() { return renderScale; }, setLook: (y: number, p: number) => { yaw = y; pitch = p; }, PM };
