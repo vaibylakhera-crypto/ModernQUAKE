@@ -62,7 +62,7 @@
   #timers:empty{display:none}
   #timers .tm{display:flex;align-items:center;gap:6px;padding:2px 9px;border-radius:12px;background:rgba(10,6,4,.55);border:1px solid color-mix(in srgb,var(--c) 55%,transparent);font:700 11px "Rajdhani",system-ui,sans-serif;letter-spacing:.12em;color:#f3e3d0;white-space:nowrap}
   #timers .tm i{font-style:normal;color:var(--c);min-width:2ch;text-align:right}
-  body.touch #timers{top:calc(86px + env(safe-area-inset-top))}
+  body.touch #timers{top:calc(54px + env(safe-area-inset-top))}
   #medal{position:absolute;bottom:4px;right:8px;font-size:10px;letter-spacing:2px;opacity:.45;display:none}
   body.fps #medal{display:block}
   #msg{position:absolute;top:38%;left:50%;transform:translateX(-50%);font-size:22px;letter-spacing:3px;color:#fff;opacity:0;transition:opacity .4s}
@@ -269,7 +269,7 @@
   body.touch .tpause svg,body.touch .tmusic svg,body.touch .tplay svg,body.touch .tchat svg,body.touch .tmic svg{width:50%;height:50%}
   body.touch .tplay.playing{border-color:#ffb070;color:#ffb070}
   /* match timer: a slim pill alone at the top centre */
-  body.touch #matchbar{position:absolute;top:var(--top);left:50%;transform:translateX(-50%);padding:3px 12px;font-size:11px;letter-spacing:.12em;white-space:nowrap;line-height:1.25;background:rgba(10,6,4,.5);border-radius:14px}
+  body.touch #matchbar{position:absolute;top:var(--top) !important;left:50%;transform:translateX(-50%);padding:3px 12px;font-size:11px;letter-spacing:.12em;white-space:nowrap;line-height:1.25;background:rgba(10,6,4,.5);border-radius:14px}
   body.touch #matchbar small{font-size:9px;letter-spacing:.14em}
   /* vitals: compact, no name row */
   body.touch #vitals{top:var(--top);left:calc(10px + env(safe-area-inset-left));width:clamp(120px,19vw,168px);padding:5px 8px 4px;border-radius:8px}
