@@ -174,8 +174,13 @@ wss.on('connection', (ws, req) => {
     rooms.set(code, room); syncBots(room);
   }
   if (room.players.size >= MAX) { send(ws, { t: 'full' }); ws.close(); return; }
+  clearTimeout(room.reapTimer);                                    // somebody is back: the room stays
   const id = nextId++;
   room.players.set(id, { ws, name, color: pickColor(room, id), team: 0, frags: 0, deaths: 0, p: null });
+  { // a player who dropped out a moment ago (phone locked, app switched) comes back with their score
+    const g = room.ghosts?.get(name); room.ghosts?.delete(name);
+    if (g && Date.now() - g.t < 90000 && room.state === 'playing') { const pl = room.players.get(id); pl.frags = g.frags; pl.deaths = g.deaths; }
+  }
   if (!room.host || !room.players.has(room.host)) room.host = id;
   assignTeams(room);
   send(ws, { t: 'welcome', id, ...roomInfo(room) });
@@ -277,9 +282,15 @@ wss.on('connection', (ws, req) => {
   });
   ws.on('close', () => {
     dropFlagsOf(room, id);
+    { const gone = room.players.get(id); if (gone && room.state === 'playing') { (room.ghosts ??= new Map()).set(gone.name, { frags: gone.frags, deaths: gone.deaths, t: Date.now() }); } }
     room.players.delete(id); bcast(room, { t: 'leave', id });
     console.log(`[${code}] - ${name} (#${id}) — ${room.players.size} left`);
-    if (!room.players.size) { clearTimeout(room.endTimer); clearFlags(room); rooms.delete(code); return; }
+    if (!room.players.size) {
+      // keep an empty room for a short while so a dropped connection can come straight back into the same match
+      clearTimeout(room.reapTimer);
+      room.reapTimer = setTimeout(() => { if (!room.players.size) { clearTimeout(room.endTimer); clearFlags(room); rooms.delete(code); console.log(`[${code}] closed (empty)`); } }, 30000);
+      return;
+    }
     if (room.host === id) { room.host = Math.min(...room.players.keys()); bcast(room, { t: 'host', host: room.host }); }
     if (teamMode(room)) { assignTeams(room); bcast(room, { t: 'cfg', ...roomInfo(room) }); }
   });
@@ -287,7 +298,7 @@ wss.on('connection', (ws, req) => {
 
 /** GET /api/rooms: open games for the JOIN screen */
 function listRooms() {
-  return [...rooms.values()].filter(r => r.cfg.open && r.players.size < MAX).map(r => ({
+  return [...rooms.values()].filter(r => r.cfg.open && r.players.size > 0 && r.players.size < MAX).map(r => ({
     room: r.code, host: r.players.get(r.host)?.name ?? '?', players: r.players.size, bots: r.bots.size, map: r.cfg.map, state: r.state,
     frag: r.cfg.frag, time: r.cfg.time, mode: r.cfg.mode,
   }));

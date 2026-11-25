@@ -618,7 +618,7 @@ function applyRoom(info: RoomInfo) {
 }
 let localKillAt = 0, armTeam = 0;
 const net = new Net({
-  status(st) { netState = st; drawNet(); pushView(); if (st === 'offline' && mode === 'online') say('DISCONNECTED'); },
+  status(st) { netState = st; drawNet(); pushView(); if (st === 'offline' && mode === 'online') say('DISCONNECTED'); else if (st === 'connecting' && mode === 'online' && net.id) say('RECONNECTING…'); },
   welcome(_id, info) { if (applyRoom(info)) say(hostId === net.id ? 'ROOM CREATED' : 'CONNECTED'); },
   join(p, host) { scoreboard = [...scoreboard.filter(x => x.id !== p.id), p]; hostId = host; if (!p.bot) { addRemote(p); say(`${p.name} JOINED`); } pushView(); syncVoicePeers(); },
   leave(id) { const r = remotes.get(id); if (r) say(`${r.info.name} LEFT`); dropRemote(id); scoreboard = scoreboard.filter(p => p.id !== id); speaking.delete(id); drawSpeakers(); pushView(); syncVoicePeers(); },

@@ -57,16 +57,21 @@ export class RemotePlayer implements Target {
     const yaw = yawPlayer + Math.PI, last = this.snaps[this.snaps.length - 1];
     // teleported / respawned: start a fresh history so the character jumps instead of sliding across the map
     if (last && Math.hypot(p[0] - last.x, p[2] - last.z) + Math.abs(p[1] - last.y) > 6) this.snaps.length = 0;
+    { // adapt the display delay to how steady this player's updates arrive: calm link = low delay, jittery link = more cushion
+      const now = performance.now(), gap = last ? now - last.t : 0;
+      if (last && gap < 600) { this.gapEma += (gap - this.gapEma) * 0.1; this.gapDev += (Math.abs(gap - this.gapEma) - this.gapDev) * 0.1; this.interp += (Math.max(80, Math.min(260, this.gapEma + 3 * this.gapDev + 45)) - this.interp) * 0.05; }
+    }
     this.snaps.push({ t: performance.now(), x: p[0], y: p[1], z: p[2], yaw }); if (this.snaps.length > 20) this.snaps.shift();
     this.hp = hp; this.alive = !dead; this.setWeapon(w);
     if (this.first) { this.pos.set(p[0], p[1], p[2]); this.yaw = yaw; this.first = false; }
   }
   /** recent position snapshots (arrival time + state): drawn ~100 ms in the past so there are always two real samples to blend */
+  private gapEma = 33; private gapDev = 5; private interp = INTERP_MS;
   private snaps: { t: number; x: number; y: number; z: number; yaw: number }[] = [];
   /** the position / facing to show right now, from the snapshot history */
   private sample() {
     const S = this.snaps; if (!S.length) return;
-    const rt = performance.now() - INTERP_MS, n = S.length, newest = S[n - 1];
+    const rt = performance.now() - this.interp, n = S.length, newest = S[n - 1];
     let x: number, y: number, z: number, yaw: number;
     if (rt >= newest.t) {                                         // the data is late: coast on the last velocity for up to 150 ms
       const prev = S[n - 2] ?? newest, span = Math.max(1, newest.t - prev.t), age = Math.min(150, rt - newest.t);
@@ -128,6 +133,8 @@ export interface NetEvents {
 
 export class Net {
   ws: WebSocket | null = null; id = 0; online = false; private acc = 0;
+  /** auto-reconnect: remembers the room so a dropped connection (phone locked, app switched) comes straight back */
+  private params: [string, string, string, MatchCfg | undefined] | null = null; private wantOnline = false; private tries = 0; private retryT = 0;
   /** round-trip time to the server in ms (0 until the first reply) */
   ping = 0; private pingTimer = 0;
   constructor(private ev: NetEvents) {}
@@ -144,15 +151,30 @@ export class Net {
     return location.port === '5173' ? `${location.protocol}//${location.hostname}:8080` : '';
   }
   connect(room: string, name: string, map = 'boreal', cfg?: MatchCfg) {
-    this.ev.status('connecting');
+    this.params = [room, name, map, cfg]; this.wantOnline = true; this.tries = 0; this.open();
+    if (!this.visHooked) { this.visHooked = true; document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && this.wantOnline && !this.online) { clearTimeout(this.retryT); this.open(); } }); }
+  }
+  private visHooked = false;
+  /** leave for good: no more reconnect attempts */
+  disconnect() { this.wantOnline = false; clearTimeout(this.retryT); this.ws?.close(); }
+  private open() {
+    if (!this.params) return; const [room, name, map, cfg0] = this.params;
+    // after the first connect the room exists (or is kept for a while): rejoin it without re-sending the creation settings
+    const cfg = this.tries === 0 ? cfg0 : undefined;
+    this.ev.status('connecting'); this.ws?.close();
     const ws = new WebSocket(Net.url(room, name, map, cfg)); this.ws = ws;
     ws.onopen = () => { this.online = true; clearInterval(this.pingTimer); this.pingTimer = window.setInterval(() => this.send({ t: 'ping', c: performance.now() }), 2000); };
-    ws.onclose = () => { clearInterval(this.pingTimer); if (this.online) this.ev.status('offline'); this.online = false; };
-    ws.onerror = () => { if (!this.online) this.ev.status('offline'); };
+    ws.onclose = () => {
+      if (ws !== this.ws) return;                                // an old socket we replaced
+      clearInterval(this.pingTimer); const was = this.online; this.online = false;
+      if (this.wantOnline && this.tries < 15) { this.tries++; this.ev.status('connecting'); clearTimeout(this.retryT); this.retryT = window.setTimeout(() => this.open(), Math.min(4000, 600 * this.tries)); }
+      else if (was) this.ev.status('offline');
+    };
+    ws.onerror = () => { /* onclose follows and decides what to do */ };
     ws.onmessage = e => {
       let m: any; try { m = JSON.parse(e.data); } catch { return; }
       switch (m.t) {
-        case 'welcome': this.id = m.id; this.ev.status('online'); this.ev.welcome(m.id, m); break;
+        case 'welcome': this.tries = 0; this.id = m.id; this.ev.status('online'); this.ev.welcome(m.id, m); break;
         case 'full': this.ev.status('full'); break;
         case 'join': this.ev.join(m.player, m.host); break;
         case 'cfg': case 'start': case 'lobby': this.ev.room(m.t, m); break;
