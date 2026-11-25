@@ -232,6 +232,41 @@
   body.online .tchat,body.online .tmic{display:flex}
   body.touch #chatfeed{bottom:calc(var(--sb) + 8px);left:calc(var(--sr) + 130px);max-width:36vw} body.touch .cl{font-size:12px}
   body.touch #speakers{bottom:auto;top:calc(70px + env(safe-area-inset-top));right:calc(12px + env(safe-area-inset-right));font-size:11px}
+
+  /* ================= PHONE HUD (final layout, overrides the older patches above) =================
+     top-left: vitals · top-centre: match timer only · top-right: one row of system buttons, kill feed under it · bottom: controls */
+  body.touch{--B:clamp(32px,9.5vh,42px);--gap:7px;--top:calc(6px + env(safe-area-inset-top));--edge:calc(10px + env(safe-area-inset-right))}
+  body.touch .tpause,body.touch .tmusic,body.touch .tplay,body.touch .tchat,body.touch .tmic{width:var(--B) !important;height:var(--B) !important;top:var(--top) !important;margin:0 !important;left:auto !important;font-size:10px;background:rgba(14,9,6,.55);border-width:1.5px}
+  body.touch .tpause{right:var(--edge) !important}
+  body.touch .tmusic{right:calc(var(--edge) + (var(--B) + var(--gap))) !important}
+  body.touch .tplay{right:calc(var(--edge) + 2 * (var(--B) + var(--gap))) !important}
+  body.touch .tchat{right:calc(var(--edge) + 3 * (var(--B) + var(--gap))) !important}
+  body.touch .tmic{right:calc(var(--edge) + 4 * (var(--B) + var(--gap))) !important}
+  body.touch .tpause svg,body.touch .tmusic svg,body.touch .tplay svg,body.touch .tchat svg,body.touch .tmic svg{width:50%;height:50%}
+  body.touch .tplay.playing{border-color:#ffb070;color:#ffb070}
+  /* match timer: a slim pill alone at the top centre */
+  body.touch #matchbar{position:absolute;top:var(--top);left:50%;transform:translateX(-50%);padding:3px 12px;font-size:11px;letter-spacing:.12em;white-space:nowrap;line-height:1.25;background:rgba(10,6,4,.5);border-radius:14px}
+  body.touch #matchbar small{font-size:9px;letter-spacing:.14em}
+  /* vitals: compact, no name row */
+  body.touch #vitals{top:var(--top);left:calc(10px + env(safe-area-inset-left));width:clamp(120px,19vw,168px);padding:5px 8px 4px;border-radius:8px}
+  body.touch #pname{display:none}
+  body.touch .vrow{margin:1px 0} body.touch .vrow b{font-size:clamp(12px,3.9vh,16px);min-width:26px} body.touch .vbar{height:6px}
+  body.touch #frags{font-size:9px;margin-top:2px;letter-spacing:.14em}
+  body.touch #boosts{top:calc(var(--top) + clamp(58px,17vh,72px))}
+  /* kill feed hangs under the button row, small and right-aligned, never reaching the centre */
+  body.touch #feed{top:calc(var(--top) + var(--B) + 8px);right:var(--edge);max-width:min(34vw,300px)}
+  body.touch #feed .kf:nth-child(n+3){display:none}
+  /* weapon bar: sits at the very bottom centre, between the stick and the fire buttons */
+  body.touch #wbar{bottom:calc(4px + env(safe-area-inset-bottom)) !important;top:auto !important}
+  body.touch .wslot{min-width:clamp(34px,5.2vw,44px)}
+  /* in-game messages and announcer stay clear of the top bar */
+  body.touch #msg{top:34%}
+  body.touch #announce{top:22%}
+  body.touch #announce .ann-t{font-size:clamp(20px,6vh,34px)}
+  /* chat feed above the stick, away from the weapon bar */
+  body.touch #chatfeed{bottom:calc(var(--sb) + clamp(110px,36vh,150px));left:calc(10px + env(safe-area-inset-left));max-width:34vw}
+  /* narrow phones (SE-size landscape) */
+  @media (max-height:380px){ body.touch #vitals{width:128px} body.touch #boosts{top:calc(var(--top) + 54px)} }
 </style>
 </head>
 <body>
