@@ -257,6 +257,11 @@ export function step(k = 1) {
   thump(b, { dur: 0.09, peak: 0.55, f: 84 * jit(0.12), drop: 1.7 });
   nz(b, { dur: 0.05, peak: 0.2, type: 'bandpass', f0: 1000 * jit(0.2), f1: 420, q: 0.9 });
 }
+/** switching weapons: a short metallic handling click */
+export function swap() {
+  if (!ready() || !gate('swap', 120)) return; const b = bus(0.5, 0, 0.08);
+  nz(b, { dur: 0.03, peak: 0.25, type: 'highpass', f0: 2200, f1: 1600, grit: true }); thump(b, { t: 0.05, dur: 0.08, peak: 0.4, f: 150, drop: 1.3 }); ring(b, { t: 0.05, dur: 0.05, peak: 0.08, f: 2900 });
+}
 /** pushing off the floor */
 export function jump() {
   if (!ready() || !gate('jump', 120)) return; const b = bus(0.55, 0, 0.12);

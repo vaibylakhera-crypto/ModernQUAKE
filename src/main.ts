@@ -7,6 +7,7 @@ import { Sky, Stars, SKY_PRESETS } from './sky';
 import { World } from './world';
 import { Arena } from './arena';
 import { updateFireLights, setFireQuality } from './torches';
+import { buildEmbers } from './props';
 import { kitOptions } from './kit';
 import { getQuality } from './quality';
 import { Player, PM, Input } from './player';
@@ -181,6 +182,7 @@ let yaw = 0, pitch = 0;
 const startEl = document.getElementById('start')!;
 const TOUCH = touchDevice || new URLSearchParams(location.search).has('touch');
 setFireQuality(0, TOUCH);
+const embers = buildEmbers(TOUCH ? 70 : 140); scene.add(embers.points);
 if (new URLSearchParams(location.search).has('fps')) document.body.classList.add('fps');
 let touchPlaying = false;
 const locked = () => touchPlaying || document.pointerLockElement === renderer.domElement;
@@ -324,7 +326,7 @@ const combat = new Combat(scene, {
 });
 const pickupSys = new Pickups(scene);
 const hitEl = document.getElementById('hit')!; let hitT = 0;
-const crossEl = document.getElementById('cross')!; let crossKick = 0, crossGap = 6;
+let lastWeapon = ''; const crossEl = document.getElementById('cross')!; let crossKick = 0, crossGap = 6;
 // ---- music + announcer ----
 const music = new Music();
 const announcer = new Announcer(document.getElementById('announce')!);
@@ -1065,7 +1067,8 @@ function frame(now: number) {
     crossKick = Math.max(0, crossKick - bdt * 5);
     const gap = 6 + Math.min(6, player.speedXZ * 0.35) + (player.grounded ? 0 : 3) + crossKick * 7;
     if (Math.abs(gap - crossGap) > 0.25) { crossGap += (gap - crossGap) * Math.min(1, bdt * 18); crossEl.style.setProperty('--g', `${crossGap.toFixed(1)}px`); }
-    crossEl.classList.toggle('dry', !loadout.canFire(vm.current));
+    crossEl.classList.toggle('dry', !loadout.canFire(vm.current)); if (crossEl.dataset.w !== vm.current) crossEl.dataset.w = vm.current;
+    if (vm.target !== lastWeapon) { if (lastWeapon) sfx.swap(); lastWeapon = vm.target; }
     net.sendState(bdt, { p: [player.x, player.y, player.z], yaw, pitch, w: vm.current, hp: player.health, dead: deadT > 0 });
     netTick(bdt); matchTick(bdt); ctfTick(now / 1000); if (!frozen) boosterTick(bdt); }
   combat.setViewHeight(renderer.domElement.height);
@@ -1074,7 +1077,7 @@ function frame(now: number) {
   if (!Q.liveSky || PLAIN_SKY) { const a = now / 1000 * 0.004; scene.backgroundRotation.y = a; stars.mesh.rotation.y = a; }
   if (Q.liveSky && !PLAIN_SKY) sky.update(now / 1000, camera);
   world.update(now / 1000, (Date.now() + timeOffset) / 1000); surround.update(now / 1000);
-  updateFireLights(camera.position, now / 1000, Math.min(0.05, frameMs / 1000));
+  updateFireLights(camera.position, now / 1000, Math.min(0.05, frameMs / 1000)); embers.update(camera.position, now / 1000);
   hud();
   if (composer) composer.render(); else renderer.render(scene, camera);
   vm.update(Math.min(0.05, frameMs / 1000), { speed: player.speedXZ, grounded: player.grounded, lookDX, lookDY, spinning: firing() && locked() && vm.current === 'nailer', beam: firing() && locked() && vm.current === 'arc' }); lookDX = lookDY = 0;

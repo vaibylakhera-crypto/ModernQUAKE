@@ -5,6 +5,7 @@ import { liftMoving } from './lifts';
 import { Quality } from './quality';
 import { buildPad, padTime, buildTeleporter, teleTime } from './pads';
 import { buildTorches, torchTime } from './torches';
+import { buildProps, propTime } from './props';
 
 // "Alien fortress" arena: solid brush-style geometry built straight from the collision boxes, with original procedural
 // textures (scripts/make-alien-textures.py): worn slab floors, dark stone walls with alien veins, corroded iron trim,
@@ -122,9 +123,11 @@ export class Arena {
   constructor(private q: Quality) {
     pads.forEach((p, i) => this.group.add(buildPad(p, i, { beams: q.padBeams })));
     this.group.add(buildTorches());
+    { const pr = buildProps(); this.group.add(pr.group); this.rings.push(...pr.spin); }
     for (const t of teleporters) { const g = buildTeleporter(t, q.padBeams); this.group.add(g.gate, g.exit); this.spin.push(...g.spin); }
   }
   private spin: THREE.Object3D[] = [];
+  private rings: THREE.Object3D[] = [];
 
   private add(part: Part, g: THREE.BufferGeometry) {
     let l = this.parts.get(part); if (!l) this.parts.set(part, (l = [])); l.push(g); this.stats.pieces++;
@@ -244,5 +247,5 @@ export class Arena {
   /** tSec: the shared (server) clock the lifts run on */
   update(t: number, tSec = Date.now() / 1000) {
     this.liftMeshes.forEach((m, i) => { m.g.position.y = liftBoxes[i].max[1]; m.edge.color.set(liftMoving(lifts[i], tSec) ? 0xffffff : THEME.lamp); });
-    padTime.value = t; teleTime.value = t; torchTime.value = t; this.spin.forEach((o, i) => { o.rotation.z = t * (i % 2 ? -1.4 : 1.1); o.position.y += Math.sin(t * 2 + i) * 0.002; }); }
+    padTime.value = t; teleTime.value = t; torchTime.value = t; propTime.value = t; this.rings.forEach((o, i) => { o.rotation.z = t * (i % 2 ? -0.9 : 0.7); }); this.spin.forEach((o, i) => { o.rotation.z = t * (i % 2 ? -1.4 : 1.1); o.position.y += Math.sin(t * 2 + i) * 0.002; }); }
 }

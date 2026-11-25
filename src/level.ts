@@ -386,6 +386,13 @@ function planTorches(base: Box[]): { torches: Torch[]; props: Box[] } {
   const near = (p: number[], q: number[], r: number) => Math.hypot(p[0] - q[0], p[2] - q[2]) < r && Math.abs(p[1] - q[1]) < 3;
   const clear = (c: number[], gateR = 3.5) => !(DEF.pads.some(p => near(c, p.pos, 3)) || DEF.pickups.some(p => near(c, p.pos, 2.5)) || DEF.spawns.some(s => near(c, s.pos, 2.5)) || DEF.teleporters.some(t => near(c, t.pos, gateR) || near(c, t.dest, 2.5)));
   const isFloor = (b: Box) => (!b.kind || b.kind === 'floor') && (b.max[0] - b.min[0]) * (b.max[2] - b.min[2]) >= 28 && b.max[0] - b.min[0] >= 3 && b.max[2] - b.min[2] >= 3;
+  // 0) a pair of stands flanking each flag base
+  if (DEF.flags) for (const f of [DEF.flags.red, DEF.flags.blue]) for (const dz of [-2.6, 2.6]) {
+    const c: [number, number, number] = [f[0], f[1], f[2] + dz];
+    if (!clear(c, 3)) continue;
+    torches.push({ kind: 'stand', pos: [c[0], c[1] + 1.35, c[2]], floor: c[1] });
+    props.push({ min: [c[0] - 0.45, c[1], c[2] - 0.45], max: [c[0] + 0.45, c[1] + 1.0, c[2] + 0.45], kind: 'prop' });
+  }
   // 1) bowls on top of free-standing pillars
   for (const b of base) {
     if (b.kind !== 'pillar' || b.max[1] - b.min[1] < 3) continue;
@@ -405,7 +412,7 @@ function planTorches(base: Box[]): { torches: Torch[]; props: Box[] } {
     if (sz > 20) for (const x of xs) for (let z = b.min[2] + 12; z < b.max[2] - 6; z += 12) cand.push([x, top, z]);
   }
   for (const c of cand) {
-    if (torches.filter(k => k.kind === 'stand').length >= 4) break;
+    if (torches.filter(k => k.kind === 'stand').length >= (DEF.flags ? 6 : 4)) break;
     if (torches.some(k => near(c, k.pos, 15)) || !clear(c)) continue;
     const solid = (o: Box) => o.kind !== 'light' && o.kind !== 'lift';
     if (base.some(o => solid(o) && c[0] > o.min[0] - 0.6 && c[0] < o.max[0] + 0.6 && c[2] > o.min[2] - 0.6 && c[2] < o.max[2] + 0.6 && c[1] + 0.5 > o.min[1] + 0.05 && c[1] + 0.5 < o.max[1])) continue;
