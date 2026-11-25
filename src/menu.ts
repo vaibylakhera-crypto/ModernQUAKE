@@ -193,6 +193,8 @@ const CSS = `
 #endscreen .box{width:min(560px,calc(100vw - 32px));max-height:calc(100dvh - 20px);overflow:auto;padding:18px;background:#0c0806ee;border:1px solid #e0782a66;border-radius:12px;pointer-events:auto}
 #endscreen h2{margin:0 0 4px;text-align:center;font-size:30px;letter-spacing:.2em;color:#ffd9a8}
 #scoreov{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:4;width:min(560px,calc(100vw - 32px));max-height:calc(100dvh - 20px);overflow:auto;padding:14px;background:#0c0806e6;border:1px solid #ffffff22;border-radius:12px;display:none;pointer-events:none}
+.m-stats{display:flex;justify-content:center;gap:clamp(10px,3vw,26px);margin:6px 0 4px;flex-wrap:wrap}.m-stats div{text-align:center;min-width:56px}.m-stats b{display:block;font-size:clamp(18px,5vh,26px);color:#ffd9a8;font-weight:800}.m-stats span{font-size:10px;letter-spacing:.2em;color:#a89480}
+.m-medals{display:flex;justify-content:center;flex-wrap:wrap;gap:8px;margin:8px 0 10px}.m-medals div{padding:6px 12px;border-radius:18px;border:1px solid #ffc060;background:linear-gradient(180deg,#3a2812,#1c1209);color:#ffd27a;font:800 12px 'Cinzel',serif;letter-spacing:.14em;box-shadow:0 0 14px #ffb04033}
 .m-tscore{display:flex;justify-content:center;gap:18px;font-size:26px;font-weight:800;letter-spacing:.12em;margin:4px 0 10px}
 #matchbar{position:absolute;top:14px;left:50%;transform:translateX(-50%);font-weight:700;letter-spacing:.22em;font-size:15px;color:#f3e3d0;text-shadow:0 0 6px #000;white-space:nowrap;text-align:center;line-height:1.25}
 #matchbar b{color:#ffb070} #matchbar small{font-size:.72em;letter-spacing:.18em;opacity:.85} .tr{color:#ff6a58} .tb{color:#5aa8ff}
@@ -529,12 +531,13 @@ export class Menu {
   }
 
   // ───────── overlays ─────────
-  showEnd(players: PlayerInfo[], winner: number, meId: number, next: number, team = 0, ts?: { 1: number; 2: number }) {
+  showEnd(players: PlayerInfo[], winner: number, meId: number, next: number, team = 0, ts?: { 1: number; 2: number }, stats?: { kills: number; deaths: number; acc: number; streak: number; medals: string[] }) {
     const w = players.find(p => p.id === winner), teamGame = players.some(p => p.team);
     const title = teamGame ? (team ? `${TEAMS[team].name} TEAM WINS` : 'DRAW') : w ? (w.id === meId ? 'YOU WIN' : `${esc(w.name)} WINS`) : 'MATCH OVER';
     const me = players.find(p => p.id === meId), mine = teamGame && me?.team ? (team === me.team ? 'VICTORY' : team ? 'DEFEAT' : '') : '';
     const col = team ? TEAMS[team].css : '#ffd9a8';
     this.endEl.innerHTML = `<div class="box"><h2 style="color:${col}">${title}</h2>${mine ? `<div class="m-status">${mine}</div>` : ''}${teamGame && ts ? `<div class="m-tscore"><span class="tr">RED ${ts[1]}</span><span class="tb">${ts[2]} BLUE</span></div>` : ''}
+      ${stats ? `<div class="m-stats"><div><b>${stats.kills}</b><span>KILLS</span></div><div><b>${stats.deaths}</b><span>DEATHS</span></div><div><b>${stats.acc}%</b><span>ACCURACY</span></div><div><b>${stats.streak}</b><span>BEST STREAK</span></div></div>${stats.medals.length ? `<div class="m-medals">${stats.medals.map(m => `<div>${m}</div>`).join('')}</div>` : ''}` : ''}
       <div class="m-status">NEXT MATCH IN <span data-n>${next}</span>S</div>${this.scoreRows(players, meId, -1, ts, teamGame)}</div>`;
     this.endEl.style.display = 'flex';
     let n = next; const span = this.endEl.querySelector('[data-n]')!;

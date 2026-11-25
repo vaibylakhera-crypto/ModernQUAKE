@@ -18,8 +18,10 @@ export class Announcer {
   }
   setEnabled(v: boolean) { this.enabled = v; try { localStorage.setItem('mq-announcer', v ? '1' : '0'); } catch { /* ignore */ } if (!v) try { speechSynthesis.cancel(); } catch { /* ignore */ } }
   private said = new Set<string>(); private stand: number | null = null;
+  /** this match's bests, for the medals screen */
+  bestSpree = 0; bestMulti = 0; gotFirstBlood = false;
   /** new match: first blood is available again */
-  reset() { this.kills = []; this.spree = 0; this.first = true; this.said.clear(); this.stand = null; }
+  reset() { this.kills = []; this.spree = 0; this.first = true; this.said.clear(); this.stand = null; this.bestSpree = 0; this.bestMulti = 0; this.gotFirstBlood = false; }
   /**
    * match calls, checked a few times a second while playing.
    * timeLeft: seconds on the clock (-1 = no limit) · fragsLeft: what the leader still needs (-1 = none) ·
@@ -39,7 +41,7 @@ export class Announcer {
   /** the local player scored a kill */
   kill(now = performance.now()) {
     this.spree++; this.kills = this.kills.filter(t => now - t < WINDOW_MS); this.kills.push(now);
-    const n = this.kills.length;
+    const n = this.kills.length; this.bestSpree = Math.max(this.bestSpree, this.spree); this.bestMulti = Math.max(this.bestMulti, n); if (this.first) this.gotFirstBlood = true;
     if (SPREES[this.spree]) this.say(SPREES[this.spree], `${this.spree} KILLS IN A ROW`, 3);
     else if (n >= 2) this.say(MULTI[Math.min(5, n)], `${n} KILLS IN A ROW`.replace('IN A ROW', 'IN QUICK SUCCESSION'), Math.min(3, n));
     else if (this.first) this.say('FIRST BLOOD', '', 2);

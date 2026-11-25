@@ -448,6 +448,7 @@ function refreshFrags() {
 }
 
 // ---- match flow ----
+const mstat = { shots: 0, hits: 0, fire: 0, hitFire: -1, pickups: 0 };
 const DEAD_TIME = 1.7;
 let deadT = 0, deadFor = 0, deathLook: THREE.Vector3 | null = null;
 function endDeath() { deadT = 0; vm.setVisible(true); }
@@ -461,7 +462,7 @@ function enemyXZ(): [number, number][] {
 const nowServer = () => Date.now() + timeOffset;
 const remaining = () => endsAt ? Math.max(0, (endsAt - nowServer()) / 1000) : -1;
 function startSoloMatch() {
-  announcer.reset(); matchStartMs = performance.now(); ts = { 1: 0, 2: 0 }; soloScore.clear(); matchState = 'playing'; endsAt = cfg.time ? Date.now() + cfg.time * 60000 : 0; timeOffset = 0;
+  announcer.reset(); Object.assign(mstat, { shots: 0, hits: 0, hitFire: -1, pickups: 0 }); matchStartMs = performance.now(); ts = { 1: 0, 2: 0 }; soloScore.clear(); matchState = 'playing'; endsAt = cfg.time ? Date.now() + cfg.time * 60000 : 0; timeOffset = 0;
   endDeath(); player.respawn(); yaw = player.yaw; pitch = 0; loadout.reset(); vm.show('pistol'); lastBar = '';
   for (const b of bots) b.respawn(); menu.hideEnd(); refreshFrags(); announcer.say('FIGHT', '', 2); pushView();
 }
@@ -472,12 +473,12 @@ function checkSoloEnd() {
   if ((cfg.frag && lead >= cfg.frag) || (endsAt && Date.now() >= endsAt)) {
     matchState = 'ended';
     const sorted = [...b].sort((x, y) => y.frags - x.frags || x.deaths - y.deaths);
-    menu.showEnd(sorted, sorted[0]?.id ?? -1, 0, 10, teamMode() ? (ts[1] > ts[2] ? 1 : ts[2] > ts[1] ? 2 : 0) : 0, ts); sfx.kill();
+    menu.showEnd(sorted, sorted[0]?.id ?? -1, 0, 10, teamMode() ? (ts[1] > ts[2] ? 1 : ts[2] > ts[1] ? 2 : 0) : 0, ts, endStats(sorted, 0)); sfx.kill();
     clearTimeout(soloEndTimer); soloEndTimer = window.setTimeout(() => { if (mode === 'solo') startSoloMatch(); }, 10000);
     pushView();
   }
 }
-const matchEl = document.getElementById('matchbar')!;
+const matchEl = document.getElementById('matchbar')!, timersEl = document.getElementById('timers')!; let timersHtml = '';
 let matchAcc = 0;
 function matchTick(dt: number) {
   matchAcc += dt; if (matchAcc < 0.25) return; matchAcc = 0;
@@ -496,6 +497,7 @@ function matchTick(dt: number) {
     const top = Math.max(mine, rest), limit = cfg.mode === 'ctf' ? 0 : cfg.frag;
     announcer.match(r, limit ? limit - top : -1, top > 0 && (teamMode() ? mt > 0 : true) ? (mine > rest ? 1 : mine === rest ? 0 : -1) : null, (performance.now() - matchStartMs) / 1000);
   }
+  { const tl = pickupSys.timers(performance.now() / 1000), html = matchState === 'playing' ? tl.map(x => `<div class="tm" style="--c:#${x.color.toString(16).padStart(6, '0')}">${x.name}<i>${x.left}</i></div>`).join('') : ''; if (html !== timersHtml) { timersHtml = html; timersEl.innerHTML = html; } }
   if (mode === 'solo') checkSoloEnd();
   let text = '';
   if (mode !== 'title') {
@@ -607,10 +609,10 @@ const net = new Net({
   leave(id) { const r = remotes.get(id); if (r) say(`${r.info.name} LEFT`); dropRemote(id); scoreboard = scoreboard.filter(p => p.id !== id); speaking.delete(id); drawSpeakers(); pushView(); syncVoicePeers(); },
   room(kind, info) {
     if (!applyRoom(info)) return;
-    if (kind === 'start') { menu.hideEnd(); endDeath(); player.respawn(); yaw = player.yaw; pitch = 0; loadout.reset(); vm.show('pistol'); lastBar = ''; for (const b of bots) b.respawn(); announcer.reset(); matchStartMs = performance.now(); announcer.say('FIGHT', '', 2); }
+    if (kind === 'start') { menu.hideEnd(); endDeath(); player.respawn(); yaw = player.yaw; pitch = 0; loadout.reset(); vm.show('pistol'); lastBar = ''; for (const b of bots) b.respawn(); announcer.reset(); Object.assign(mstat, { shots: 0, hits: 0, hitFire: -1, pickups: 0 }); matchStartMs = performance.now(); announcer.say('FIGHT', '', 2); }
     if (kind === 'lobby') { menu.hideEnd(); say('WARMUP'); }
   },
-  end(b, winner, _why, next, team, tsv) { matchState = 'ended'; scoreboard = b; endsAt = 0; if (tsv) ts = tsv; menu.showEnd(b, winner, net.id, next, team ?? 0, tsv ?? ts); refreshFrags(); pushView(); },
+  end(b, winner, _why, next, team, tsv) { matchState = 'ended'; scoreboard = b; endsAt = 0; if (tsv) ts = tsv; menu.showEnd(b, winner, net.id, next, team ?? 0, tsv ?? ts, endStats(b, net.id)); refreshFrags(); pushView(); },
   flags(fl, tsv, ev) { flagSt = fl; ts = tsv ?? ts; onFlagEvent(ev); pushView(); },
   chat(from, to, k, txt) { onChat(from, to, k, txt); },
   rtc(from, d) { onRtc(from, d); },
@@ -877,7 +879,21 @@ function blame(who: string, weapon: WeaponId) { if (!who) return; killer.who = w
 const nameOf = (who: string) => /^\d+$/.test(who) ? (remotes.get(Number(who))?.info.name ?? 'PLAYER') : who;
 let killT = 0;
 function killMark() { killT = 0.45; hitT = 0.3; hitEl.classList.add('kill'); buzz(15); }
+// per-match personal stats for the medals screen
+function endStats(players: PlayerInfo[], meId: number) {
+  const me = players.find(p => p.id === meId), kills = me?.frags ?? 0, deaths = me?.deaths ?? 0, acc = mstat.shots ? Math.min(100, Math.round(100 * mstat.hits / mstat.shots)) : 0;
+  const medals: string[] = [];
+  if (mstat.shots >= 20 && acc >= 40) medals.push('SHARPSHOOTER');
+  if (kills >= 3 && deaths === 0) medals.push('UNTOUCHABLE');
+  if (announcer.bestSpree >= 5) medals.push('KILLING MACHINE');
+  if (announcer.bestMulti >= 2) medals.push(announcer.bestMulti >= 3 ? 'MULTI KILLER' : 'DOUBLE KILL');
+  if (announcer.gotFirstBlood) medals.push('FIRST BLOOD');
+  if (mstat.pickups >= 5) medals.push('COLLECTOR');
+  if (kills >= 10 && kills >= 3 * Math.max(1, deaths)) medals.push('DOMINATOR');
+  return { kills, deaths, acc, streak: announcer.bestSpree, medals };
+}
 function onLanded(tg: Target, dmg: number, point: THREE.Vector3, weapon: WeaponId, killed: boolean) {
+  if (mstat.hitFire !== mstat.fire) { mstat.hitFire = mstat.fire; mstat.hits++; }
   hitT = 0.2; sfx.hit(dmg); damageNumber(tg, point, dmg, killed);
   if (killed) {
     sfx.kill(); killMark();
@@ -983,6 +999,7 @@ function tryFire(dt: number) {
   }
 }
 function doFire(id: Parameters<typeof combat.fire>[0]) {
+  mstat.shots++; mstat.fire++;
   _dir.set(-Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), -Math.cos(yaw) * Math.cos(pitch));
   _eye.set(player.x, player.y + player.eye, player.z);
   camera.updateMatrixWorld(true);
@@ -1048,6 +1065,7 @@ function frame(now: number) {
   if (!frozen) feelTick(Math.min(0.05, frameMs / 1000));
   tryFire(Math.min(0.05, frameMs / 1000));
   for (const got of frozen || deadT > 0 ? [] : pickupSys.update(now / 1000, player, d => d.kind === 'weapon' ? loadout.wouldAccept(d.id) : d.kind === 'booster' ? (d.id === 'mega' ? player.health < 200 : d.id === 'shield' ? player.armor < 200 : true) : d.kind === 'health' ? player.health < 100 : player.armor < 100)) {
+    mstat.pickups++;
     (got.kind === 'weapon' ? sfx.weapon : got.kind === 'health' ? sfx.health : got.kind === 'armor' ? sfx.armor : sfx.pickup)();
     if (got.kind === 'weapon') { const r = loadout.give(got.id); say(r === 'new' ? `${WEAPON_DEFS[got.id].name} ACQUIRED` : `+${WEAPON_DEFS[got.id].stats.ammoPickup} ${WEAPON_DEFS[got.id].name} AMMO`); if (r === 'new') vm.select(got.id); }
     else if (got.kind === 'health') { player.health = Math.min(100, player.health + got.amount); say(`+${got.amount} HEALTH`); }

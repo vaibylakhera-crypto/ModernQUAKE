@@ -128,5 +128,12 @@ export class Pickups {
     it.active = false; it.respawnAt = t + RESPAWN[it.def.kind]; it.item.visible = it.label.visible = it.col.visible = false; return it.def;
   }
 
+  /** power-ups that are about to come back (within `within` seconds), soonest first: for the HUD countdown */
+  timers(t: number, within = 20): { name: string; color: number; left: number }[] {
+    const out: { name: string; color: number; left: number }[] = [];
+    for (const it of this.items) if (!it.active && it.def.kind === 'booster' && it.respawnAt - t <= within) out.push({ name: BOOSTERS[it.def.id].name.replace('MEGA HEALTH', 'MEGA'), color: it.color, left: Math.ceil(it.respawnAt - t) });
+    return out.sort((a, b) => a.left - b.left).slice(0, 3);
+  }
+
   respawnAll() { for (const it of this.items) { it.active = true; it.item.visible = it.label.visible = it.col.visible = true; } }
 }
