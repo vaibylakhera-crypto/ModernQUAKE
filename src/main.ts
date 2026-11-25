@@ -354,7 +354,7 @@ const combat = new Combat(scene, {
   friendly: tg => { const t = myTeam(); return t > 0 && ((tg as any).team ?? 0) === t; },
   ownerFriendly: owner => friendlyOwner(owner),
   hurt(dmg, dir, weapon, owner) { if (friendlyOwner(owner) || player.health <= 0 || player.invuln > 0) return; blame(owner, weapon); showDamageDir(-dir.x, -dir.z); buzz(30); player.knock(dir.x * 1.5, 0.3, dir.z * 1.5); sfx.hurt(); if (player.takeDamage(dmg)) die('DIED'); },
-  landed(tg, dmg, point, weapon, killed) { onLanded(tg, dmg, point, weapon, killed); },
+  landed(tg, dmg, point, weapon, killed, head) { onLanded(tg, dmg, point, weapon, killed, !!head); },
   boom(pos, size) { sfx.boom(size, pos.distanceTo(camera.position), panOf(pos)); },
   explode(pos, radius, dmg, knock, fromPlayer, weapon, owner) {
     // splash on the local player (rocket jumps!); teammates' splash does not hurt
@@ -495,7 +495,7 @@ function refreshFrags() {
 }
 
 // ---- match flow ----
-const mstat = { shots: 0, hits: 0, fire: 0, hitFire: -1, pickups: 0 };
+const mstat = { shots: 0, hits: 0, fire: 0, hitFire: -1, pickups: 0, heads: 0 };
 const DEAD_TIME = 1.7;
 let deadT = 0, deadFor = 0, deathLook: THREE.Vector3 | null = null;
 function endDeath() { deadT = 0; vm.setVisible(true); }
@@ -509,7 +509,7 @@ function enemyXZ(): [number, number][] {
 const nowServer = () => Date.now() + timeOffset;
 const remaining = () => endsAt ? Math.max(0, (endsAt - nowServer()) / 1000) : -1;
 function startSoloMatch() {
-  announcer.reset(); Object.assign(mstat, { shots: 0, hits: 0, hitFire: -1, pickups: 0 }); matchStartMs = performance.now(); ts = { 1: 0, 2: 0 }; soloScore.clear(); matchState = 'playing'; endsAt = cfg.time ? Date.now() + cfg.time * 60000 : 0; timeOffset = 0;
+  announcer.reset(); Object.assign(mstat, { shots: 0, hits: 0, hitFire: -1, pickups: 0, heads: 0 }); matchStartMs = performance.now(); ts = { 1: 0, 2: 0 }; soloScore.clear(); matchState = 'playing'; endsAt = cfg.time ? Date.now() + cfg.time * 60000 : 0; timeOffset = 0;
   endDeath(); player.respawn(); yaw = player.yaw; pitch = 0; loadout.reset(); vm.show('pistol'); lastBar = '';
   for (const b of bots) b.respawn(); menu.hideEnd(); refreshFrags(); announcer.say('FIGHT', '', 2); pushView();
 }
@@ -670,7 +670,7 @@ const net = new Net({
   leave(id) { const r = remotes.get(id); if (r) say(`${r.info.name} LEFT`); dropRemote(id); scoreboard = scoreboard.filter(p => p.id !== id); speaking.delete(id); drawSpeakers(); pushView(); syncVoicePeers(); },
   room(kind, info) {
     if (!applyRoom(info)) return;
-    if (kind === 'start') { menu.hideEnd(); endDeath(); player.respawn(); yaw = player.yaw; pitch = 0; loadout.reset(); vm.show('pistol'); lastBar = ''; for (const b of bots) b.respawn(); announcer.reset(); Object.assign(mstat, { shots: 0, hits: 0, hitFire: -1, pickups: 0 }); matchStartMs = performance.now(); announcer.say('FIGHT', '', 2); }
+    if (kind === 'start') { menu.hideEnd(); endDeath(); player.respawn(); yaw = player.yaw; pitch = 0; loadout.reset(); vm.show('pistol'); lastBar = ''; for (const b of bots) b.respawn(); announcer.reset(); Object.assign(mstat, { shots: 0, hits: 0, hitFire: -1, pickups: 0, heads: 0 }); matchStartMs = performance.now(); announcer.say('FIGHT', '', 2); }
     if (kind === 'lobby') { menu.hideEnd(); say('WARMUP'); }
   },
   end(b, winner, _why, next, team, tsv) { matchState = 'ended'; scoreboard = b; endsAt = 0; if (tsv) ts = tsv; menu.showEnd(b, winner, net.id, next, team ?? 0, tsv ?? ts, endStats(b, net.id)); refreshFrags(); pushView(); },
@@ -952,12 +952,13 @@ function endStats(players: PlayerInfo[], meId: number) {
   if (announcer.bestMulti >= 2) medals.push(announcer.bestMulti >= 3 ? 'MULTI KILLER' : 'DOUBLE KILL');
   if (announcer.gotFirstBlood) medals.push('FIRST BLOOD');
   if (mstat.pickups >= 5) medals.push('COLLECTOR');
+  if (mstat.heads >= 5) medals.push('HEADHUNTER');
   if (kills >= 10 && kills >= 3 * Math.max(1, deaths)) medals.push('DOMINATOR');
   return { kills, deaths, acc, streak: announcer.bestSpree, medals };
 }
-function onLanded(tg: Target, dmg: number, point: THREE.Vector3, weapon: WeaponId, killed: boolean) {
+function onLanded(tg: Target, dmg: number, point: THREE.Vector3, weapon: WeaponId, killed: boolean, head = false) {
   if (mstat.hitFire !== mstat.fire) { mstat.hitFire = mstat.fire; mstat.hits++; }
-  hitT = 0.2; sfx.hit(dmg); damageNumber(tg, point, dmg, killed);
+  hitT = 0.2; sfx.hit(dmg); if (head) { sfx.headshot(); hitT = 0.3; mstat.heads++; } damageNumber(tg, point, dmg, killed, head);
   if (killed) {
     sfx.kill(); killMark();
     if (!net.online) feed(myName === 'PLAYER' ? 'YOU' : myName, weapon, (tg as Bot).name ?? 'BOT', true, false, false);
@@ -967,10 +968,10 @@ function onLanded(tg: Target, dmg: number, point: THREE.Vector3, weapon: WeaponI
 interface DmgNum { el: HTMLDivElement; pos: THREE.Vector3; t: number; v: number; tg: Target | null }
 const dmgNums: DmgNum[] = [];
 for (let i = 0; i < 10; i++) { const el = document.createElement('div'); el.className = 'dmg'; document.getElementById('hud')!.appendChild(el); dmgNums.push({ el, pos: new THREE.Vector3(), t: 0, v: 0, tg: null }); }
-function damageNumber(tg: Target, p: THREE.Vector3, dmg: number, killed: boolean) {
+function damageNumber(tg: Target, p: THREE.Vector3, dmg: number, killed: boolean, head = false) {
   let d = dmgNums.find(n => n.tg === tg && n.t > 0.55);                     // still fresh: add pellets/ticks together
   if (!d) { d = dmgNums.reduce((a, b) => (a.t < b.t ? a : b)); d.v = 0; d.pos.copy(p); d.pos.x += (Math.random() - .5) * 0.3; }
-  d.tg = tg; d.v += dmg; d.t = 0.8; d.el.textContent = String(Math.round(d.v)); d.el.classList.toggle('big', killed || d.v >= 50);
+  d.tg = tg; d.v += dmg; d.t = 0.8; d.el.textContent = (head ? '✦ ' : '') + String(Math.round(d.v)); d.el.classList.toggle('big', killed || d.v >= 50); d.el.classList.toggle('head', head);
 }
 const _np = new THREE.Vector3();
 function drawNumbers(dt: number) {

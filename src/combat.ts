@@ -176,7 +176,7 @@ export interface CombatHooks {
   /** the local player was hit by a projectile */
   hurt(dmg: number, dir: THREE.Vector3, weapon: WeaponId, owner: string): void;
   /** the local player's attack landed on a target (hit markers, damage numbers, sounds, kill feed) */
-  landed?(tg: Target, dmg: number, point: THREE.Vector3, weapon: WeaponId, killed: boolean): void;
+  landed?(tg: Target, dmg: number, point: THREE.Vector3, weapon: WeaponId, killed: boolean, head?: boolean): void;
   /** an explosion happened at pos (sound) */
   boom?(pos: THREE.Vector3, size: number): void;
   /** true for teammates of the local player: attacks pass through them (no friendly fire) */
@@ -255,9 +255,9 @@ export class Combat {
   }
 
   /** apply the local player's damage to a target and report it */
-  private strike(tg: Target, dmg: number, from: THREE.Vector3, dir: THREE.Vector3, netKind: string, weapon: WeaponId, point: THREE.Vector3) {
+  private strike(tg: Target, dmg: number, from: THREE.Vector3, dir: THREE.Vector3, netKind: string, weapon: WeaponId, point: THREE.Vector3, head = false) {
     const was = tg.alive; tg.hit(dmg, from, dir, netKind);
-    this.hooks.landed?.(tg, dmg, point, weapon, was && !tg.alive);
+    this.hooks.landed?.(tg, dmg, point, weapon, was && !tg.alive, head);
   }
 
   private aimPoint(eye: THREE.Vector3, dir: THREE.Vector3, max: number): THREE.Vector3 {
@@ -273,7 +273,9 @@ export class Combat {
     let endT = maxT, hitWorld = !!w;
     for (const h of hits) {
       const hp = o.clone().addScaledVector(d, h.t);
-      this.strike(h.tg, dmg, o, d, kind, weapon, hp);
+      // headshot: the sidearm and the rail do double damage to the head (top 18% of the body)
+      const head = (weapon === 'pistol' || weapon === 'rail') && hp.y > h.tg.pos.y + h.tg.height * 0.82;
+      this.strike(h.tg, head ? dmg * 2 : dmg, o, d, kind, weapon, hp, head);
       this.blood(hp, d);
       if (!pierce) { endT = h.t; hitWorld = false; break; }
     }

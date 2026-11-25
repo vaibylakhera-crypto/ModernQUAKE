@@ -219,6 +219,12 @@ export function hit(dmg: number) {
   ring(b, { dur: 0.07, peak: 0.4, f: 2300 * k }); ring(b, { dur: 0.05, peak: 0.16, f: 3450 * k, type: 'triangle' });
   nz(b, { dur: 0.012, peak: 0.12, type: 'bandpass', f0: 4200, f1: 3500, q: 1 });
 }
+/** a headshot: a sharp high crack with a bright ring on top of the normal hit tick */
+export function headshot() {
+  if (!ready() || !gate('head', 60)) return; const b = bus(1.3, 0, 0.12);
+  ring(b, { dur: 0.09, peak: 0.45, f: 3300 }); ring(b, { dur: 0.12, peak: 0.28, f: 4950, type: 'triangle' }); ring(b, { t: 0.04, dur: 0.18, peak: 0.16, f: 6600 });
+  nz(b, { dur: 0.02, peak: 0.3, type: 'highpass', f0: 3800, f1: 3000, grit: true }); thump(b, { dur: 0.08, peak: 0.35, f: 160, drop: 1.4 });
+}
 /** a frag: a short rising two-note chime */
 export function kill() {
   if (!ready()) return; const b = bus(0.62, 0, 0.35);
