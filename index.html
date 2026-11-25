@@ -318,6 +318,9 @@
   body.touch #radar{top:calc(var(--top) + clamp(52px,16vh,64px))}
   body.touch.radar #boosts{top:calc(var(--top) + clamp(52px,16vh,64px) + clamp(72px,24vh,92px) + 8px)}
   body.touch #boosts{top:calc(var(--top) + clamp(52px,16vh,64px))}
+  .treload{display:none;width:var(--D);height:var(--D);right:calc(var(--sr) + (var(--F) - var(--D)) / 2);bottom:calc(var(--sb) + var(--J) * 0.55 + var(--F) + max(8px,2.5vh) + var(--D) + 8px);font-size:clamp(9px,2.6vh,11px)}
+  .treload.show,#touch.editing .treload{display:flex}
+  .tbtn[data-b=reload]{transform:translate(var(--dx,0px),var(--dy,0px))}
 </style>
 </head>
 <body>

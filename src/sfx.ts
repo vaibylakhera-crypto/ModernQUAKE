@@ -262,6 +262,14 @@ export function swap() {
   if (!ready() || !gate('swap', 120)) return; const b = bus(0.5, 0, 0.08);
   nz(b, { dur: 0.03, peak: 0.25, type: 'highpass', f0: 2200, f1: 1600, grit: true }); thump(b, { t: 0.05, dur: 0.08, peak: 0.4, f: 150, drop: 1.3 }); ring(b, { t: 0.05, dur: 0.05, peak: 0.08, f: 2900 });
 }
+/** sidearm reload: magazine out, magazine in, slide rack */
+export function reload() {
+  if (!ready()) return; const b = bus(0.55, 0, 0.1);
+  nz(b, { dur: 0.03, peak: 0.22, type: 'highpass', f0: 2200, f1: 1600, grit: true }); thump(b, { t: 0.04, dur: 0.1, peak: 0.35, f: 120, drop: 1.3 });
+  nz(b, { t: 0.5, dur: 0.04, peak: 0.26, type: 'highpass', f0: 1800, f1: 1400, grit: true }); thump(b, { t: 0.52, dur: 0.1, peak: 0.5, f: 90, drop: 1.4 }); ring(b, { t: 0.52, dur: 0.06, peak: 0.08, f: 2400 });
+  nz(b, { t: 0.92, dur: 0.05, peak: 0.3, type: 'bandpass', f0: 1600, f1: 900, q: 0.8, grit: true });
+  nz(b, { t: 1.02, dur: 0.03, peak: 0.3, type: 'highpass', f0: 2600, f1: 2000, grit: true }); thump(b, { t: 1.03, dur: 0.1, peak: 0.55, f: 100, drop: 1.5 });
+}
 /** pushing off the floor */
 export function jump() {
   if (!ready() || !gate('jump', 120)) return; const b = bus(0.55, 0, 0.12);

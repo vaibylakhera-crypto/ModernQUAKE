@@ -9,6 +9,7 @@ import { Arena } from './arena';
 import { updateFireLights, setFireQuality } from './torches';
 import { buildEmbers } from './props';
 import { Radar } from './radar';
+import { PISTOL_MAG, PISTOL_RELOAD } from './loadout';
 import { kitOptions } from './kit';
 import { getQuality } from './quality';
 import { Player, PM, Input } from './player';
@@ -263,7 +264,7 @@ addEventListener('keydown', e => {
   if (e.repeat) return;           // holding space never auto-hops
   keys.add(e.code);
   if (e.code === 'Space') jumpQueued = true;
-  if (e.code === 'KeyR') { die('DIED'); }
+  if (e.code === 'KeyR' && vm.current === 'pistol') loadout.startReload();
 });
 addEventListener('keyup', e => { keys.delete(e.code); if (e.code === 'Tab') menu.showScores(false); if (e.code === 'KeyV') void voice.press(false); });
 let touch: TouchControls | null = null;
@@ -279,6 +280,7 @@ if (TOUCH) {
     nextWeapon() { vm.select(loadout.step(vm.target, 1)); },
     pause() { touchPlaying = false; touch!.show(false); openPause(); },
     chat() { toggleQuick(); },
+    reload() { if (vm.current === 'pistol') loadout.startReload(); },
     music() { toggleMusicPanel(); },
     playpause() { music.toggle(); },
     mic(on) { if (voice.mode === 'open') { if (on) void voice.toggleOpen(); } else void voice.press(on); },
@@ -303,12 +305,12 @@ WEAPON_ORDER.forEach((id, i) => {
 });
 let lastBar = '';
 function refreshBar() {
-  const key = WEAPON_ORDER.map(w => `${loadout.has(w) ? 1 : 0}${loadout.ammo[w]}${w === vm.target ? 'x' : ''}`).join('|');
+  const key = WEAPON_ORDER.map(w => `${loadout.has(w) ? 1 : 0}${loadout.ammo[w]}${w === vm.target ? 'x' : ''}`).join('|') + `|${loadout.mag}${loadout.reloading ? 'r' : ''}`;
   if (key === lastBar) return; lastBar = key;
   for (const w of WEAPON_ORDER) {
     const el = document.getElementById('w-' + w)!; const own = loadout.has(w);
     el.classList.toggle('own', own); el.classList.toggle('on', w === vm.target); el.classList.toggle('dry', own && !loadout.canFire(w));
-    el.querySelector('i')!.textContent = own ? (loadout.ammo[w] === Infinity ? '∞' : String(loadout.ammo[w])) : '';
+    el.querySelector('i')!.textContent = !own ? '' : w === 'pistol' ? (loadout.reloading ? '↻' : `${loadout.mag}`) : (loadout.ammo[w] === Infinity ? '∞' : String(loadout.ammo[w]));
   }
 }
 let mouseDown = false, lookDX = 0, lookDY = 0;
@@ -1046,8 +1048,11 @@ function hud() {
 }
 
 const _dir = new THREE.Vector3(), _eye = new THREE.Vector3();
+let reloadFx = false;
 function tryFire(dt: number) {
-  loadout.cooldown -= dt;
+  loadout.cooldown -= dt; loadout.tick(dt);
+  if (loadout.reloading && !reloadFx) { reloadFx = true; sfx.reload(); vm.reloadDip(PISTOL_RELOAD); } else if (!loadout.reloading) reloadFx = false;
+  touch?.setReload(vm.current === 'pistol' && loadout.mag < PISTOL_MAG);
   const id = vm.current; const st = WEAPON_DEFS[id].stats;
   if (!(firing() && locked()) || loadout.cooldown > 0 || vm.switching || matchState === 'ended' || deadT > 0) return;
   if (!loadout.canFire(id)) { loadout.cooldown = 0.3; if (id !== 'blade' && id !== 'pistol') vm.select(loadout.best()); return; }

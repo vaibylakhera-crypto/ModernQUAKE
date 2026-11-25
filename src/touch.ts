@@ -14,6 +14,7 @@ export interface TouchHooks {
   mic(on: boolean): void;
   music(): void;
   playpause(): void;
+  reload(): void;
 }
 
 export class TouchControls {
@@ -27,7 +28,7 @@ export class TouchControls {
   /** user-moved controls: offsets in px from the default spot, saved on the device */
   private layout: Record<string, [number, number]> = {};
   private editing = false; private dragId: number | null = null; private dragKey = ''; private dragFrom: [number, number] = [0, 0]; private dragStart: [number, number] = [0, 0];
-  private static readonly MOVABLE = ['fire', 'jump', 'crouch', 'weap', 'stick'];
+  private static readonly MOVABLE = ['fire', 'jump', 'crouch', 'weap', 'reload', 'stick'];
 
   constructor(private hooks: TouchHooks) {
     const el = this.el = document.createElement('div'); el.id = 'touch';
@@ -38,6 +39,7 @@ export class TouchControls {
       <button class="tbtn tjump" data-b="jump">${svg('<path d="M6 13l6-6 6 6M6 19l6-6 6 6"/>')}<span>JUMP</span></button>
       <button class="tbtn tcrouch" data-b="crouch">${svg('<path d="M6 8l6 6 6-6M6 19h12"/>')}<span>DUCK</span></button>
       <button class="tbtn tweap" data-b="weap">${svg('<path d="M4 8h13l-3-3M20 16H7l3 3"/>')}</button>
+      <button class="tbtn treload" data-b="reload">${svg('<path d="M20 12a8 8 0 1 1-2.6-5.9"/><path d="M20 4v5h-5"/>')}<span>RELOAD</span></button>
       <button class="tbtn tmusic" data-b="music">${svg('<path d="M9 18V6l10-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/>')}</button>
       <button class="tbtn tplay" data-b="play"><span class="ic-play">${svg('<path d="M8 5l11 7-11 7z"/>')}</span><span class="ic-pause">${svg('<path d="M8 5v14M16 5v14"/>')}</span></button>
       <button class="tbtn tchat" data-b="chat">${svg('<path d="M4 5h16v10H9l-5 4z"/>')}</button>
@@ -95,6 +97,9 @@ export class TouchControls {
     for (const t of Array.from(e.changedTouches)) if (t.identifier === this.dragId) { this.dragId = null; this.save(); this.el.querySelectorAll('.dragging').forEach(x => x.classList.remove('dragging')); }
   }
 
+  /** show the reload button only while the sidearm is out and not full */
+  setReload(on: boolean) { this.el.querySelector('.treload')?.classList.toggle('show', on); }
+
   /** reflect the music play / pause state on the top button */
   setPlaying(on: boolean) { this.el.querySelector('.tplay')?.classList.toggle('playing', on); }
 
@@ -124,6 +129,7 @@ export class TouchControls {
         else if (b === 'jump') { this.hooks.jump(); this.lookIds.set(t.identifier, { x: t.clientX, y: t.clientY }); flash(btn); }
         else if (b === 'crouch') { this.crouch = !this.crouch; btn.classList.toggle('on', this.crouch); }
         else if (b === 'weap') { this.hooks.nextWeapon(); flash(btn); }
+        else if (b === 'reload') { this.hooks.reload(); flash(btn); }
         else if (b === 'pause') { this.hooks.pause(); }
         else if (b === 'chat') { this.hooks.chat(); flash(btn); }
         else if (b === 'music') { this.hooks.music(); flash(btn); }

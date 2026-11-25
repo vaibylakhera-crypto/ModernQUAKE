@@ -110,6 +110,9 @@ export class Viewmodel {
   current: WeaponId = 'pistol';
   private pending: WeaponId = 'pistol';
   private raise = 1;
+  private reloadT = 0; private reloadDur = 1;
+  /** the sidearm reload: the gun dips down and comes back up */
+  reloadDip(dur: number) { this.reloadT = dur; this.reloadDur = dur; }
   private kick = 0; private kz = 0; private kzv = 0; private breath = 0; private wasAir = false; private land = 0; private tilt = 0; private bobT = 0; private swayX = 0; private swayY = 0; private flashT = 0; private spin = 0; private swing = 0;
   onSwitch?: (id: WeaponId) => void;
   fp: FpArms; private procHands: THREE.Object3D[] = [];
@@ -223,7 +226,9 @@ export class Viewmodel {
     const cl = (v: number) => Math.max(-0.07, Math.min(0.07, v));
     this.swayX += (cl(-o.lookDX * 0.0016) - this.swayX) * Math.min(1, dt * 10);
     this.swayY += (cl(o.lookDY * 0.0016) - this.swayY) * Math.min(1, dt * 10);
-    const lower = (1 - this.raise) * (1 - this.raise);
+    if (this.reloadT > 0) this.reloadT = Math.max(0, this.reloadT - dt);
+    const dip = this.reloadT > 0 && this.current === 'pistol' ? Math.sin((1 - this.reloadT / this.reloadDur) * Math.PI) : 0;
+    const lower = (1 - this.raise) * (1 - this.raise) + dip * 1.6;
     const h = m.holder;
     const sw = Math.sin(this.swing * Math.PI);   // blade slash arc
     // weapon switch: dip and tilt the gun down (smaller than before, so the hands stay on it)
