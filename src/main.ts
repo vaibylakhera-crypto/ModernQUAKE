@@ -169,9 +169,9 @@ function adapt(ms: number) {
   if (avg > 24 && renderScale <= Q.minScale + 0.001) { if (++lowSecs >= 3 && fxLevel < 2) { fxLevel++; setFireQuality(fxLevel, TOUCH); lowSecs = 0; } } else lowSecs = 0;
   if (document.body.classList.contains('perf')) { const a = sfx.stats(), ri = renderer.info.render; perfEl.textContent = `${lastFps} FPS  ·  ${Q.tier.toUpperCase()}  ·  res ${Math.round(renderScale * 100)}%\neffects level ${fxLevel}  ·  draws ${ri.calls}  ·  tris ${Math.round(ri.triangles / 1000)}k\naudio ${a.state}  ·  voices ${a.live}  ·  music ${music.playing ? 'on' : 'off'}\nping ${net.online ? Math.round((net as any).ping ?? 0) + ' ms' : 'solo'}`; }
   if (avg > 18.5 && renderScale > Q.minScale) { renderScale = Math.max(Q.minScale, renderScale - 0.08); applyRes(); goodSecs = 0; }
-  else if (avg < (TOUCH ? 17.4 : 12.5) && renderScale < Q.renderScale) {
+  else if (avg < (TOUCH ? 17.4 : 12.5) && renderScale < (saverOn ? Math.min(Q.renderScale, 0.6) : Q.renderScale)) {
     // phones are capped at 60 fps, so "fast" means holding the cap; climb back slowly after 3 steady seconds
-    if (!TOUCH || ++goodSecs >= 3) { renderScale = Math.min(Q.renderScale, renderScale + 0.04); applyRes(); goodSecs = 0; }
+    if (!TOUCH || ++goodSecs >= 3) { renderScale = Math.min(saverOn ? Math.min(Q.renderScale, 0.6) : Q.renderScale, renderScale + 0.04); applyRes(); goodSecs = 0; }
   } else goodSecs = 0;
 }
 
@@ -185,6 +185,36 @@ setFireQuality(0, TOUCH);
 const embers = buildEmbers(TOUCH ? 70 : 140); scene.add(embers.points);
 if (new URLSearchParams(location.search).has('fps')) document.body.classList.add('fps');
 let touchPlaying = false;
+// ---- phone aim assist: friction over an enemy + a gentle pull while firing ----
+let assistFriction = 1;
+const _ad = new THREE.Vector3(), _ae = new THREE.Vector3();
+function aimAssist(dt: number) {
+  assistFriction = 1;
+  const lvl = menu.settings.assist; if (!TOUCH || !lvl || deadT > 0 || matchState === 'ended') return;
+  _ae.set(player.x, player.y + player.eye, player.z);
+  const cone = lvl === 2 ? 0.1 : 0.07, mt = myTeam();
+  let best: Target | null = null, bestErr = cone, ey = 0, ep = 0;
+  for (const tg of targets) {
+    if (!tg.alive || (mt && ((tg as any).team ?? 0) === mt)) continue;
+    const cx = tg.pos.x - _ae.x, cy = tg.pos.y + tg.height * 0.6 - _ae.y, cz = tg.pos.z - _ae.z, d = Math.hypot(cx, cy, cz);
+    if (d < 1.5 || d > 45) continue;
+    const wy = Math.atan2(-cx, -cz), wp = Math.asin(cy / d);
+    const dyaw = Math.atan2(Math.sin(wy - yaw), Math.cos(wy - yaw)), dp = wp - pitch, err = Math.hypot(dyaw * Math.cos(pitch), dp);
+    if (err >= bestErr) continue;
+    _ad.set(cx / d, cy / d, cz / d); if (rayWorld(_ae, _ad, d - 0.6)) continue;          // a wall is in the way
+    best = tg; bestErr = err; ey = dyaw; ep = dp;
+  }
+  if (!best) return;
+  assistFriction = lvl === 2 ? 0.45 : 0.62;                       // thumb drags move the crosshair less while it is on a target
+  if (firing()) { const pull = Math.min(1, dt * (lvl === 2 ? 7 : 3.5)); yaw += ey * pull; pitch = Math.max(-Math.PI / 2 + 0.01, Math.min(Math.PI / 2 - 0.01, pitch + ep * pull)); }
+}
+// ---- battery saver: fewer pixels, no real firelight or sparks ----
+let saverOn = false;
+function applySaver(on: boolean) {
+  if (on === saverOn) return; saverOn = on;
+  setFireQuality(on ? 2 : fxLevel, TOUCH); embers.points.visible = !on;
+  renderScale = on ? Math.max(Q.minScale, Math.min(renderScale, 0.6)) : Q.renderScale; applyRes();
+}
 const locked = () => touchPlaying || document.pointerLockElement === renderer.domElement;
 let lockedAt = 0, lockExitAt = 0;
 function resume() {
@@ -229,7 +259,7 @@ if (TOUCH) {
   touch = new TouchControls({
     look(dx, dy) {
       if (!touchPlaying) return;
-      const k = 0.0058 * aimSens; yaw -= dx * k; pitch -= dy * k; lookDX += dx * 0.6; lookDY += dy * 0.6;
+      const k = 0.0058 * aimSens * assistFriction; yaw -= dx * k; pitch -= dy * k; lookDX += dx * 0.6; lookDY += dy * 0.6;
       pitch = Math.max(-Math.PI / 2 + 0.01, Math.min(Math.PI / 2 - 0.01, pitch));
     },
     jump() { jumpQueued = true; },
@@ -1051,7 +1081,7 @@ const DT = 1 / 120;
 let acc = 0, last = performance.now();
 function frame(now: number) {
   // phones: cap at ~60 fps. 90/120 Hz screens otherwise double the GPU work, the phone heats up and throttles into stutter.
-  if (TOUCH && now - last < 15.5) { requestAnimationFrame(frame); return; }
+  if (TOUCH && now - last < (saverOn ? 31 : 15.5)) { requestAnimationFrame(frame); return; }      // 60 fps, or 30 in battery saver
   const frameMs = now - last;
   acc += Math.min(0.1, frameMs / 1000); last = now;
   const frozen = paused();
@@ -1063,6 +1093,8 @@ function frame(now: number) {
     }
   }
   if (frozen) acc = 0;
+  if (!frozen) aimAssist(Math.min(0.05, frameMs / 1000));
+  applySaver(menu.settings.saver);
   while (acc >= DT) {
     const input: Input = {
       forward: deadT > 0 ? 0 : Math.max(-1, Math.min(1, (keys.has('KeyW') ? 1 : 0) - (keys.has('KeyS') ? 1 : 0) + (touch?.forward ?? 0))),
@@ -1122,4 +1154,4 @@ function frame(now: number) {
 requestAnimationFrame(frame);
 
 // dev/test hook
-(window as any).__game = { bots, net, remotes, menu, stars, scene, sfx, Music, music, announcer, feed, riders, nav: navMod, voice, get ts() { return ts; }, myTeam, flagSt: () => flagSt, teamOfOwner, soloKill, grantBooster, boost, liftSys, lifts: __lifts, level: { torches: levelTorches, pads: levelPads, teleporters: levelTeleporters, boxes, pickups: levelPickups, spawns: levelSpawns }, get mode() { return mode; }, get matchState() { return matchState; }, scores: () => board(), doFire, player, camera, vm, loadout, combat, pickupSys, targets, say, die, renderer, world, Q, get scale() { return renderScale; }, setLook: (y: number, p: number) => { yaw = y; pitch = p; }, PM };
+(window as any).__game = { bots, net, remotes, menu, stars, scene, sfx, Music, music, announcer, feed, riders, nav: navMod, voice, get ts() { return ts; }, myTeam, flagSt: () => flagSt, teamOfOwner, soloKill, grantBooster, boost, liftSys, lifts: __lifts, level: { torches: levelTorches, pads: levelPads, teleporters: levelTeleporters, boxes, pickups: levelPickups, spawns: levelSpawns }, get mode() { return mode; }, get matchState() { return matchState; }, scores: () => board(), doFire, player, camera, vm, loadout, combat, pickupSys, targets, say, die, renderer, world, Q, get scale() { return renderScale; }, setLook: (y: number, p: number) => { yaw = y; pitch = p; }, PM, assistTest: { get yaw() { return yaw; }, get pitch() { return pitch; }, get friction() { return assistFriction; }, setFire: (v: boolean) => { mouseDown = v; }, step: (dt: number) => aimAssist(dt) } };

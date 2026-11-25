@@ -36,7 +36,7 @@ export interface MenuHooks {
   audio: { musicVolume(): number; setMusicVolume(v: number): void; announcer(): boolean; setAnnouncer(v: boolean): void; openPlaylist(): void };
   chatChannel?: unknown;
 }
-export interface Settings { name: string; sens: number; vol: number; quality: 'low' | 'med' | 'high'; ctl: number; cta: number; vibe: boolean }
+export interface Settings { name: string; sens: number; vol: number; quality: 'low' | 'med' | 'high'; ctl: number; cta: number; vibe: boolean; assist: number; saver: boolean }
 export interface LobbyView {
   mode: 'solo' | 'online';
   room: string; link: string; meId: number; hostId: number; isHost: boolean;
@@ -225,7 +225,7 @@ export class Menu {
     this.settings = {
       name: load('mq-name', ''), sens: Number(load('mq-sens', '1')) || 1, vol: Number(load('mq-vol', '0.7')),
       quality: load('mq-quality', 'low') as Settings['quality'],
-      ctl: Number(load('mq-ctl', '1')) || 1, cta: Number(load('mq-cta', '0.9')) || 0.9, vibe: load('mq-vibe', '1') !== '0',
+      ctl: Number(load('mq-ctl', '1')) || 1, cta: Number(load('mq-cta', '0.9')) || 0.9, vibe: load('mq-vibe', '1') !== '0', assist: Number(load('mq-assist', '1')), saver: load('mq-saver', '0') === '1',
     };
     try { this.draft = { ...DEFAULT_CFG, ...JSON.parse(load('mq-cfg', '{}')) }; } catch { this.draft = { ...DEFAULT_CFG }; }
     if (!MAPS[this.draft.map]) this.draft.map = DEFAULT_CFG.map;
@@ -437,6 +437,8 @@ export class Menu {
       <div class="m-field"><label>BUTTON SIZE · <span data-o="ctl">${Math.round(s.ctl * 100)}</span>%</label><input class="m-range" type="range" min="0.8" max="1.3" step="0.05" data-f="ctl" value="${s.ctl}"></div>
       <div class="m-field"><label>BUTTON OPACITY · <span data-o="cta">${Math.round(s.cta * 100)}</span>%</label><input class="m-range" type="range" min="0.35" max="1" step="0.05" data-f="cta" value="${s.cta}"></div>
       <div class="m-field"><label>VIBRATION</label><div class="m-seg"><button data-a="vibe" data-v="1" class="${s.vibe ? 'on' : ''}">ON</button><button data-a="vibe" data-v="0" class="${!s.vibe ? 'on' : ''}">OFF</button></div><div class="m-note">A short buzz when you are hit or get a kill (Android).</div></div>
+      <div class="m-field"><label>AIM ASSIST</label><div class="m-seg"><button data-a="assist" data-v="0" class="${s.assist === 0 ? 'on' : ''}">OFF</button><button data-a="assist" data-v="1" class="${s.assist === 1 ? 'on' : ''}">LOW</button><button data-a="assist" data-v="2" class="${s.assist === 2 ? 'on' : ''}">HIGH</button></div><div class="m-note">Slows your aim when the crosshair is over an enemy and gently pulls toward them while you fire.</div></div>
+      <div class="m-field"><label>BATTERY SAVER</label><div class="m-seg"><button data-a="saver" data-v="1" class="${s.saver ? 'on' : ''}">ON</button><button data-a="saver" data-v="0" class="${!s.saver ? 'on' : ''}">OFF</button></div><div class="m-note">Lower resolution and no real firelight or sparks: cooler phone, longer play.</div></div>
       ${this.gyroControls()}
       <div class="m-col" style="margin-bottom:8px"><button class="m-btn small" data-a="layout">MOVE BUTTONS</button><div class="m-note">Drag the fire, jump, duck and swap buttons and the stick to where your thumbs like them.</div></div>
       <div class="m-col" style="margin-bottom:8px"><button class="m-btn small" data-a="guide">SHOW CONTROLS GUIDE</button></div>` : ''}
@@ -515,6 +517,8 @@ export class Menu {
       case 'ann': this.h.audio.setAnnouncer(v === '1'); this.render(); break;
       case 'playlist': this.h.audio.openPlaylist(); break;
       case 'vibe': this.settings.vibe = v === '1'; save('mq-vibe', v); this.h.settingsChanged(this.settings); this.render(); break;
+      case 'assist': this.settings.assist = Number(v); save('mq-assist', v); this.h.settingsChanged(this.settings); this.render(); break;
+      case 'saver': this.settings.saver = v === '1'; save('mq-saver', v); this.h.settingsChanged(this.settings); this.render(); break;
       case 'guide': this.h.showGuide(); break;
       case 'layout': this.h.editLayout(); break;
       case 'gyro': this.h.gyro.setMode(v as GyroMode).then(ok => {
