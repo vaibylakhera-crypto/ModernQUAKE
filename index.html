@@ -28,11 +28,28 @@
   #cross i:nth-child(4){top:calc(var(--t) / -2);left:var(--g);height:var(--t);width:var(--l)}
   #cross b{position:absolute;left:-2px;top:-2px;width:4px;height:4px;border-radius:50%;background:#5ff7e8;box-shadow:0 0 0 1px rgba(0,0,0,.8)}
   #cross.dry{--c:#ff7a6a}
-  /* a different reticle for each weapon */
-  #cross[data-w=scatter] b{width:34px;height:34px;left:-17px;top:-17px;background:transparent;border:1.5px solid rgba(244,255,255,.75)}
-  #cross[data-w=rail] i{display:none} #cross[data-w=rail] b{width:3px;height:3px;left:-1.5px;top:-1.5px;background:#fff;box-shadow:0 0 0 1px #000,0 0 0 8px rgba(0,0,0,0),0 0 0 9px rgba(244,255,255,.55)}
-  #cross[data-w=blade] i{display:none} #cross[data-w=blade] b{width:26px;height:26px;left:-13px;top:-13px;background:transparent;border:1.5px dashed rgba(244,255,255,.7)}
-  #cross[data-w=rocket]{--l:13px} #cross[data-w=plasma] b{width:6px;height:6px;left:-3px;top:-3px}
+  /* a different reticle for each weapon. --r is the ring size; phones get smaller everything */
+  #cross{--r:30px}
+  #cross[data-w] b{box-sizing:border-box}
+  /* ring reticles: the ring replaces the four ticks, the centre dot stays */
+  #cross[data-w=rocket] i,#cross[data-w=plasma] i,#cross[data-w=arc] i,#cross[data-w=blade] i,#cross[data-w=scatter] i{display:none}
+  #cross[data-w=rocket] b,#cross[data-w=plasma] b,#cross[data-w=arc] b,#cross[data-w=blade] b,#cross[data-w=scatter] b{width:var(--r);height:var(--r);left:calc(var(--r) / -2);top:calc(var(--r) / -2);background:transparent;border:2px solid var(--c);box-shadow:0 0 0 1px rgba(0,0,0,.75),inset 0 0 0 1px rgba(0,0,0,.6)}
+  #cross[data-w=rocket] b::after,#cross[data-w=plasma] b::after,#cross[data-w=arc] b::after,#cross[data-w=blade] b::after,#cross[data-w=scatter] b::after{content:'';position:absolute;left:50%;top:50%;width:3px;height:3px;margin:-1.5px 0 0 -1.5px;border-radius:50%;background:#5ff7e8;box-shadow:0 0 0 1px rgba(0,0,0,.8)}
+  #cross[data-w=rocket] b{--r:32px}                      /* the classic circle */
+  #cross[data-w=scatter] b{--r:48px;border-width:1.5px}   /* wide: shows the pellet spread */
+  #cross[data-w=plasma] b{--r:20px}
+  #cross[data-w=arc] b{--r:24px;border-style:dotted}
+  #cross[data-w=blade] b{--r:36px;border-style:dashed;border-width:1.5px}
+  /* rail: a fine dot with hairlines and a tiny ring: precision */
+  #cross[data-w=rail] i{display:block;background:var(--c)}
+  #cross[data-w=rail]{--l:7px;--t:1px;--g:7px}
+  #cross[data-w=rail] b{width:3px;height:3px;left:-1.5px;top:-1.5px;background:#fff}
+  /* phones: everything smaller */
+  body.touch #cross{--l:6px;--t:2px;--r:22px}
+  body.touch #cross[data-w=rocket] b{--r:24px} body.touch #cross[data-w=scatter] b{--r:34px} body.touch #cross[data-w=plasma] b{--r:15px} body.touch #cross[data-w=arc] b{--r:18px} body.touch #cross[data-w=blade] b{--r:26px}
+  body.touch #cross[data-w=pistol] b,body.touch #cross[data-w=nailer] b,body.touch #cross[data-w=rail] b{width:3px;height:3px;left:-1.5px;top:-1.5px}
+  body.touch #cross[data-w=rail]{--l:5px;--t:1.5px}
+  body.touch #cross[data-w=rocket] b,body.touch #cross[data-w=plasma] b,body.touch #cross[data-w=arc] b,body.touch #cross[data-w=scatter] b,body.touch #cross[data-w=blade] b{border-width:1.5px}
   .stat{position:absolute;bottom:22px;font-weight:700;font-size:64px;letter-spacing:1px;line-height:1}
   .stat small{display:block;font-size:13px;letter-spacing:3px;opacity:.7;font-weight:600}
   #speed{right:40px;color:#7ffff0}
@@ -140,7 +157,6 @@
   body.touch .monly{display:none}
   body.touch #medal{display:none}
   body.touch #speed{display:none}
-  body.touch #cross{--l:11px;--t:3px}
   body.touch #hit{transform:rotate(45deg) scale(calc(var(--hs) * 1.25))}
   body.touch #feed{top:calc(36px + env(safe-area-inset-top));right:calc(12px + env(safe-area-inset-right));max-width:min(46vw,calc(50vw - 135px))}
   body.touch .kf b{max-width:9ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

@@ -1083,7 +1083,7 @@ function frame(now: number) {
     drawNumbers(bdt);
     // dynamic crosshair: opens up with speed, air time and each shot, then settles back
     crossKick = Math.max(0, crossKick - bdt * 5);
-    const gap = 6 + Math.min(6, player.speedXZ * 0.35) + (player.grounded ? 0 : 3) + crossKick * 7;
+    const gap = (TOUCH ? 3.5 : 6) + Math.min(TOUCH ? 3 : 6, player.speedXZ * 0.35) + (player.grounded ? 0 : (TOUCH ? 1.5 : 3)) + crossKick * (TOUCH ? 4 : 7);
     if (Math.abs(gap - crossGap) > 0.25) { crossGap += (gap - crossGap) * Math.min(1, bdt * 18); crossEl.style.setProperty('--g', `${crossGap.toFixed(1)}px`); }
     crossEl.classList.toggle('dry', !loadout.canFire(vm.current)); if (crossEl.dataset.w !== vm.current) crossEl.dataset.w = vm.current;
     if (vm.target !== lastWeapon) { if (lastWeapon) sfx.swap(); lastWeapon = vm.target; }
