@@ -8,7 +8,7 @@ import * as THREE from 'three';
 const PIXEL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGNoaPgPAAODAgAApfuJAAAAAElFTkSuQmCC';
 const PBR_DATA = /_(Normal|ORM|Roughness|Metallic)[^/]*\.png$/i;
 const LO = new Set([
-  'T_Decals', 'T_Eye_Brown', 'T_Hair_1_BaseColor', 'T_PaddedWall_BaseColor',
+  'T_Decals', 'T_Eye_Brown', 'T_Hair_1_BaseColor', 'T_Hair_2_BaseColor', 'T_PaddedWall_BaseColor',
   'T_PaddingWall_Emissive', 'T_Superhero_Female_Dark_BaseColor', 'T_Superhero_Male_Dark', 'T_Trim_01_BaseColor',
   'T_Trim_01_BaseColor_Red', 'T_Trim_01_DetailMask', 'T_Trim_01_Emissive', 'T_Trim_02_BaseColor',
   'T_Trim_02_BaseColor_Blue', 'T_Trim_02_BaseColor_Red', 'T_Trim_02_DetailMask', 'T_Trim_03_BaseColor',

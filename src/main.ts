@@ -140,6 +140,10 @@ if (new URLSearchParams(location.search).has('debug')) {
   const gpu = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER);
   setInterval(() => { d.textContent = `BUILD ${__BUILD__} · ${Q.tier.toUpperCase()} · WebGL${renderer.capabilities.isWebGL2 ? 2 : 1}\nGPU ${gpu}\ncalls ${renderer.info.render.calls} tris ${renderer.info.render.triangles} progs ${renderer.info.programs?.length}\n${gfxErrors.length ? 'ERRORS:\n' + gfxErrors.join('\n') : 'no graphics errors'}`; }, 1000);
 }
+// offline play: a service worker keeps the game files after the first visit (not in dev, only over https or localhost)
+if ('serviceWorker' in navigator && location.port !== '5173' && !new URLSearchParams(location.search).has('nosw')) {
+  addEventListener('load', () => { navigator.serviceWorker.register('/sw.js').catch(() => { /* optional */ }); });
+}
 // stale copy guard: if the server has a newer build than the code running here, reload once
 fetch('/version.json', { cache: 'no-store' }).then(r => r.ok ? r.json() : null).then(v => {
   if (!v || !v.v || v.v === __BUILD__) return;
