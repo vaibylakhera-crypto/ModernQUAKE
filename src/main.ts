@@ -10,6 +10,7 @@ import { updateFireLights, setFireQuality } from './torches';
 import { buildEmbers } from './props';
 import { Radar } from './radar';
 import { PISTOL_MAG, PISTOL_RELOAD } from './loadout';
+import { botAdapt } from './bot';
 import { kitOptions } from './kit';
 import { getQuality } from './quality';
 import { Player, PM, Input } from './player';
@@ -589,6 +590,10 @@ function matchTick(dt: number) {
     announcer.match(r, limit ? limit - top : -1, top > 0 && (teamMode() ? mt > 0 : true) ? (mine > rest ? 1 : mine === rest ? 0 : -1) : null, (performance.now() - matchStartMs) / 1000);
   }
   { const tl = pickupSys.timers(performance.now() / 1000), html = matchState === 'playing' ? tl.map(x => `<div class="tm" style="--c:#${x.color.toString(16).padStart(6, '0')}">${x.name}<i>${x.left}</i></div>`).join('') : ''; if (html !== timersHtml) { timersHtml = html; timersEl.innerHTML = html; } }
+  if (mode === 'solo' && matchState === 'playing') {            // adaptive difficulty: nudge the bots toward making the match close
+    const b = board(), me = b.find(p => p.id === 0), others = b.filter(p => p.id !== 0 && (!teamMode() || p.team !== soloTeam));
+    if (me && others.length) { const lead = me.frags - Math.max(...others.map(p => p.frags)); const want = Math.max(-1, Math.min(1, lead / 6)); botAdapt.k += (want - botAdapt.k) * 0.02; }
+  } else botAdapt.k = 0;
   if (mode === 'solo') checkSoloEnd();
   let text = '';
   if (mode !== 'title') {

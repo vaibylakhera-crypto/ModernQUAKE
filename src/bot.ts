@@ -36,6 +36,8 @@ const SKILL = {
   turn: [3.5, 7, 11],         // how fast they turn to face you
   range: [20, 28, 36],
 };
+/** adaptive difficulty: -1 = bots help you (you are losing) .. +1 = bots push harder (you are winning easily). Steered by the game every few seconds. */
+export const botAdapt = { k: 0 };
 /** per-weapon bot fire pattern */
 const BOT_GUN: Partial<Record<WeaponId, { dmg: number; cd: number; jitter: number; speed: number }>> = {
   plasma: { dmg: 11, cd: 0.42, jitter: 0.3, speed: 28 },
@@ -308,12 +310,12 @@ export class Bot implements Target {
         const gun = BOT_GUN[this.weapon] ?? BOT_GUN.plasma!;
         const lead = P.vel.clone().multiplyScalar((dist / gun.speed) * SKILL.lead[this.skill]);
         const target = (rocket ? P.pos.clone().add(new THREE.Vector3(0, 0.15, 0)) : P.eye.clone()).add(lead);
-        const e = SKILL.aim[this.skill];
+        const e = SKILL.aim[this.skill] * (1 - 0.3 * botAdapt.k);
         target.add(new THREE.Vector3((Math.random() - .5) * e, (Math.random() - .5) * e * 0.6, (Math.random() - .5) * e));
         this.root.updateMatrixWorld(true);
         const o = this.muzzle.getWorldPosition(new THREE.Vector3());
         this.ctx.fire(this.weapon, o, target.sub(o).normalize(), gun.dmg * (this.od > 0 ? 2 : 1), 0.72, this.netId ? String(this.netId) : this.name, this);
-        this.cooldown = (gun.cd + Math.random() * gun.jitter) * SKILL.cool[this.skill]; this.fireK = 1;
+        this.cooldown = (gun.cd + Math.random() * gun.jitter) * SKILL.cool[this.skill] * (1 - 0.18 * botAdapt.k); this.fireK = 1;
       } else this.cooldown = 0.2;
     }
     this.apply(dt, Math.min(1, Math.hypot(this.vel.x, this.vel.z) / SPEED));
