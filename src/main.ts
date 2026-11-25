@@ -678,7 +678,7 @@ const net = new Net({
   rtc(from, d) { onRtc(from, d); },
   talk(id, on) { onTalk(id, on); },
   host(id) { hostId = id; syncNetBots(); if (id === net.id) say('YOU ARE NOW THE HOST'); pushView(); },
-  bots(list) { if (isHost()) return; for (const b of list) remotes.get(b.id)?.setState(b.p, b.yaw, b.w, b.hp, b.dead); },
+  bots(list) { if (isHost()) return; for (const b of list) remotes.get(b.id)?.setState(b.p, b.yaw, b.w, b.hp, b.dead, b.v); },
   renamed(id, name, b) { scoreboard = b; remotes.get(id)?.rename(name); refreshFrags(); pushView(); },
   bothit(from, to, dmg, dir, kind) {
     if (!isHost()) return; const b = bots.find(x => x.netId === to);
@@ -686,7 +686,7 @@ const net = new Net({
   },
   state(id, m) { remotes.get(id)?.setState(m.p, m.yaw, m.w, m.hp, !!m.dead); },
   fire(id, m) {
-    const r = remotes.get(id); r?.flashFire(); const o = dirV(m.o);
+    const r = remotes.get(id); r?.flashFire(); const o = dirV(m.o); r?.fireFrom(o);
     combat.remoteShot(m.w, o, dirV(m.d), String(id), Number(m.k) || 1); sfx.shot(m.w, Math.min(0.85, 10 / (o.distanceTo(camera.position) + 4)), panOf(o));
   },
   hit(from, dmg, dir, kind) { if (player.health <= 0 || player.invuln > 0) return; blame(String(from), (kind in WEAPON_DEFS ? kind : 'pistol') as WeaponId); const d = dirV(dir); showDamageDir(-d.x, -d.z); buzz(30); player.knock(d.x * 1.5, 0.3, d.z * 1.5); sfx.hurt(); if (player.takeDamage(dmg)) die('DIED'); },
@@ -713,6 +713,12 @@ combat.hooks.foreignTargets = owner => {
 };
 combat.hooks.foreignHit = (tg, dmg, owner, weapon) => (tg as Bot).hit(dmg, tg.pos, new THREE.Vector3(), weapon, owner, weapon);
 let botSnapAcc = 0, pingAcc = 0;
+/** the host sends its bots' positions 20 times a second on a wall clock (not tied to the frame rate), with their velocity so other phones can coast smoothly */
+setInterval(() => {
+  if (mode !== 'online' || !net.online || !isHost() || !bots.length) return;
+  const R = (v: number) => Math.round(v * 100) / 100;
+  net.send({ t: 'bots', l: bots.map(b => ({ id: b.netId, p: [R(b.pos.x), R(b.pos.y), R(b.pos.z)], yaw: Math.round((b.yaw - Math.PI) * 1000) / 1000, w: b.weaponId, hp: Math.round(b.healthPct), dead: !b.alive, v: [R(b.vel.x), R(b.vel.z)] })) });
+}, 50);
 function netTick(dt: number) {
   if (mode !== 'online') return;
   pingAcc += dt; if (pingAcc > 1) { pingAcc = 0; drawNet(); }
@@ -723,11 +729,6 @@ function netTick(dt: number) {
       let t = humanTargets.get(id); if (!t) humanTargets.set(id, (t = { pos: new THREE.Vector3(), eye: new THREE.Vector3(), vel: zeroVel }));
       t.pos.copy(r.pos); t.eye.set(r.pos.x, r.pos.y + 1.6, r.pos.z);
       if (!r.alive) t.pos.y = -999;               // dead players are not hunted
-    }
-    botSnapAcc += dt;
-    if (botSnapAcc >= 0.05 && bots.length) {
-      botSnapAcc = 0; const R = (v: number) => Math.round(v * 100) / 100;
-      net.send({ t: 'bots', l: bots.map(b => ({ id: b.netId, p: [R(b.pos.x), R(b.pos.y), R(b.pos.z)], yaw: Math.round((b.yaw - Math.PI) * 1000) / 1000, w: b.weaponId, hp: Math.round(b.healthPct), dead: !b.alive })) });
     }
   }
 }

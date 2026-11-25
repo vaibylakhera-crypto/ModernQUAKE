@@ -53,35 +53,43 @@ export class RemotePlayer implements Target {
     if (w === this.weapon) return; this.weapon = w;
     if (!this.rig) return; this.holder?.removeFromParent(); this.holder = holdWeapon(this.rig, w);
   }
-  setState(p: number[], yawPlayer: number, w: WeaponId, hp: number, dead: boolean) {
+  setState(p: number[], yawPlayer: number, w: WeaponId, hp: number, dead: boolean, v?: number[]) {
     const yaw = yawPlayer + Math.PI, last = this.snaps[this.snaps.length - 1];
     // teleported / respawned: start a fresh history so the character jumps instead of sliding across the map
     if (last && Math.hypot(p[0] - last.x, p[2] - last.z) + Math.abs(p[1] - last.y) > 6) this.snaps.length = 0;
     { // adapt the display delay to how steady this player's updates arrive: calm link = low delay, jittery link = more cushion
       const now = performance.now(), gap = last ? now - last.t : 0;
-      if (last && gap < 600) { this.gapEma += (gap - this.gapEma) * 0.1; this.gapDev += (Math.abs(gap - this.gapEma) - this.gapDev) * 0.1; this.interp += (Math.max(80, Math.min(260, this.gapEma + 3 * this.gapDev + 45)) - this.interp) * 0.05; }
+      if (last && gap < 600) { this.gapEma += (gap - this.gapEma) * 0.1; this.gapDev += (Math.abs(gap - this.gapEma) - this.gapDev) * 0.1; this.interp += (Math.max(80, Math.min(190, this.gapEma + 3 * this.gapDev + 45)) - this.interp) * 0.05; }
     }
-    this.snaps.push({ t: performance.now(), x: p[0], y: p[1], z: p[2], yaw }); if (this.snaps.length > 20) this.snaps.shift();
+    this.snaps.push({ t: performance.now(), x: p[0], y: p[1], z: p[2], yaw, vx: v?.[0], vz: v?.[1] }); if (this.snaps.length > 20) this.snaps.shift();
     this.hp = hp; this.alive = !dead; this.setWeapon(w);
     if (this.first) { this.pos.set(p[0], p[1], p[2]); this.yaw = yaw; this.first = false; }
   }
   /** recent position snapshots (arrival time + state): drawn ~100 ms in the past so there are always two real samples to blend */
   private gapEma = 33; private gapDev = 5; private interp = INTERP_MS;
-  private snaps: { t: number; x: number; y: number; z: number; yaw: number }[] = [];
+  private snaps: { t: number; x: number; y: number; z: number; yaw: number; vx?: number; vz?: number }[] = [];
+  /** where this player really was when it last fired: while shooting it is drawn there, so its bullets start at it */
+  private pin: { x: number; z: number; t: number } | null = null;
+  fireFrom(o: THREE.Vector3) { this.pin = { x: o.x, z: o.z, t: performance.now() }; }
   /** the position / facing to show right now, from the snapshot history */
   private sample() {
     const S = this.snaps; if (!S.length) return;
     const rt = performance.now() - this.interp, n = S.length, newest = S[n - 1];
     let x: number, y: number, z: number, yaw: number;
-    if (rt >= newest.t) {                                         // the data is late: coast on the last velocity for up to 150 ms
-      const prev = S[n - 2] ?? newest, span = Math.max(1, newest.t - prev.t), age = Math.min(150, rt - newest.t);
-      x = newest.x + (newest.x - prev.x) / span * age; z = newest.z + (newest.z - prev.z) / span * age; y = newest.y; yaw = newest.yaw;
+    if (rt >= newest.t) {                                         // the data is late: coast on the last velocity (up to 400 ms, fading out)
+      const prev = S[n - 2] ?? newest, span = Math.max(1, newest.t - prev.t), age = Math.min(400, rt - newest.t) / 1000;
+      const vx = newest.vx ?? (newest.x - prev.x) / span * 1000, vz = newest.vz ?? (newest.z - prev.z) / span * 1000, fade = Math.max(0, 1 - age / 0.5);
+      x = newest.x + vx * age * fade; z = newest.z + vz * age * fade; y = newest.y; yaw = newest.yaw;
     } else if (rt <= S[0].t) { x = S[0].x; y = S[0].y; z = S[0].z; yaw = S[0].yaw; }
     else {
       let i = 0; while (i < n - 2 && S[i + 1].t <= rt) i++;
       const a = S[i], b = S[i + 1], k = (rt - a.t) / Math.max(1, b.t - a.t);
       x = a.x + (b.x - a.x) * k; y = a.y + (b.y - a.y) * k; z = a.z + (b.z - a.z) * k;
       let dy = b.yaw - a.yaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy)); yaw = a.yaw + dy * k;
+    }
+    if (this.pin) {                                               // just fired: pull toward where the shot really came from, easing off over 250 ms
+      const a = performance.now() - this.pin.t;
+      if (a > 250) this.pin = null; else { const k = (1 - a / 250) * 0.9; x += (this.pin.x - x) * k; z += (this.pin.z - z) * k; }
     }
     this.pos.set(x, y, z); this.yaw = yaw;
   }
@@ -122,7 +130,7 @@ export interface NetEvents {
   rtc(from: number, d: any): void;
   talk(id: number, on: boolean): void;
   host(id: number): void;
-  bots(list: { id: number; p: number[]; yaw: number; w: WeaponId; hp: number; dead: boolean }[]): void;
+  bots(list: { id: number; p: number[]; yaw: number; w: WeaponId; hp: number; dead: boolean; v?: number[] }[]): void;
   bothit(from: number, to: number, dmg: number, dir: number[], kind: string): void;
   renamed(id: number, name: string, board: PlayerInfo[]): void;
   state(id: number, m: any): void; fire(id: number, m: any): void;
