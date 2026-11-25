@@ -88,6 +88,8 @@ export class Music {
   volume = 0.45;
   playing = true;                         // the user's play/pause choice
   currentId = 'score';
+  /** each map plays the battle score in its own key and tempo */
+  theme = { transpose: 0, bpmMul: 1 };
   custom: (Track & { blob: Blob })[] = [];
   private ctx: BaseAudioContext | null = null; private bus: GainNode | null = null; private synth: Synth | null = null;
   private timer = 0; private nextT = 0; private stepNo = 0;
@@ -171,7 +173,7 @@ export class Music {
     while (this.nextT < until) {
       const i = this.stepNo % 16, bar = Math.floor(this.stepNo / 16);
       this.intensity += (this.target - this.intensity) * 0.035;
-      const bpm = this.currentId === 'score' ? 88 + 44 * this.intensity : (BPM[this.currentId] ?? 110);
+      const bpm = this.currentId === 'score' ? (88 + 44 * this.intensity) * this.theme.bpmMul : (BPM[this.currentId] ?? 110);
       const sixteenth = 60 / bpm / 4, swing = this.currentId === 'funk' && i % 2 === 1 ? sixteenth * 0.18 : 0;
       this.pattern(this.currentId, i, bar, this.nextT + swing);
       this.nextT += sixteenth; this.stepNo++;
@@ -216,7 +218,7 @@ export class Music {
   /** phones: cap how busy the battle score gets (fewer sounds per beat = less audio work and less garbage) */
   light = false;
   private score(i: number, bar: number, t: number, s: Synth) {
-    const k = this.light ? Math.min(0.6, this.intensity) : this.intensity, minor = [40, 36, 43, 38][Math.floor(bar / 2) % 4];
+    const k = this.light ? Math.min(0.6, this.intensity) : this.intensity, minor = [40, 36, 43, 38][Math.floor(bar / 2) % 4] + this.theme.transpose;
     if (i === 0 && bar % 4 === 0) s.pad(t, [minor - 12, minor - 5, minor], 60 / (88 + 44 * k) * 16, 0.1 + 0.06 * k, 500 + 900 * k);        // dark drone
     // 1) the war-drum heartbeat: "DUM . . . dum . . ."
     if (i === 0) s.tom(t, 62, 1); if (i === 8) s.tom(t, 70, 0.7);

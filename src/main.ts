@@ -379,7 +379,11 @@ const hitEl = document.getElementById('hit')!; let hitT = 0;
 let lastWeapon = ''; const crossEl = document.getElementById('cross')!; let crossKick = 0, crossGap = 6;
 // ---- music + announcer ----
 const music = new Music();
-music.light = TOUCH;                 // phones get a lighter battle score
+music.light = TOUCH;
+{ // each map plays the battle score in its own key and tempo
+  const T: Record<string, [number, number]> = { boreal: [0, 1], void: [-2, 0.92], spire: [3, 1.04], bastion: [-4, 0.96], foundry: [2, 1.08], crypt: [-5, 0.9], ring: [5, 1.05], tower: [-1, 1], canyon: [1, 0.98] };
+  const t = T[MAP_ID]; if (t) music.theme = { transpose: t[0], bpmMul: t[1] };
+}                 // phones get a lighter battle score
 const announcer = new Announcer(document.getElementById('announce')!);
 announcer.onSpeak = () => music.duck();
 music.onNow = t => say(`♪ ${t.name}`);
@@ -1133,6 +1137,21 @@ function doFire(id: Parameters<typeof combat.fire>[0]) {
   vm.fire(id); crossKick = 1; sfx.shot(id);
 }
 
+// ---- other fighters' footsteps: heard from their direction, fading with distance (no sound beyond ~24 m) ----
+const stepTrack = new WeakMap<object, { x: number; y: number; z: number; a: number }>();
+function otherSteps() {
+  const everyone: { pos: THREE.Vector3; alive: boolean }[] = [...bots, ...remotes.values()];
+  for (const t of everyone) {
+    if (!t.alive) continue;
+    const s = stepTrack.get(t) ?? { x: t.pos.x, y: t.pos.y, z: t.pos.z, a: 0 };
+    const d = Math.hypot(t.pos.x - s.x, t.pos.z - s.z), dy = Math.abs(t.pos.y - s.y);
+    if (d > 0.02 && d < 1.5 && dy < 0.06) s.a += d; else if (d >= 1.5) s.a = 0;
+    s.x = t.pos.x; s.y = t.pos.y; s.z = t.pos.z;
+    if (s.a > 2.3) { s.a = 0; const dist = camera.position.distanceTo(t.pos); if (dist < 24) sfx.step(0.8, Math.min(1, 10 / (dist + 3)) * 0.8, panOf(t.pos), true); }
+    stepTrack.set(t, s);
+  }
+}
+
 // ---- feel: footsteps, jump and landing sounds, heartbeat, death cam ----
 let stepDist = 0, heartT = 0, lastJumps = 0;
 function feelTick(dt: number) {
@@ -1212,6 +1231,7 @@ function frame(now: number) {
   camera.rotation.set(pitch + (Math.random() - .5) * sh * 0.02, yaw, 0);
   player.hurtT = Math.max(0, player.hurtT - frameMs / 1000);
   if (!frozen) feelTick(Math.min(0.05, frameMs / 1000));
+  if (!frozen) otherSteps();
   tryFire(Math.min(0.05, frameMs / 1000));
   for (const got of frozen || deadT > 0 ? [] : pickupSys.update(now / 1000, player, d => d.kind === 'weapon' ? loadout.wouldAccept(d.id) : d.kind === 'booster' ? (d.id === 'mega' ? player.health < 200 : d.id === 'shield' ? player.armor < 200 : true) : d.kind === 'health' ? player.health < 100 : player.armor < 100)) {
     mstat.pickups++;

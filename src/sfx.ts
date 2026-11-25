@@ -258,8 +258,8 @@ export function stinger(level: number) {
 /** we took damage: a dull thump with a grunt-like noise */
 export function hurt() { if (!ready() || !gate('hurt', 80)) return; const b = bus(1.1, 0, 0.18); tn(b, { dur: 0.16, peak: 0.55, type: 'sine', f0: 170, f1: 58 }); nz(b, { dur: 0.13, peak: 0.3, type: 'lowpass', f0: 1300, f1: 180 }); }
 /** a footstep: a dull boot thump on a hard floor, with a tiny metallic scuff. `k` 0..1 = how fast you run */
-export function step(k = 1) {
-  if (!ready() || live > 14 || !gate('step', 110)) return; const b = bus(0.3 + 0.32 * k, 0, 0);          // no reverb send: footsteps are frequent
+export function step(k = 1, vol = 1, pan = 0, other = false) {
+  if (!ready() || live > (other ? 10 : 14) || vol < 0.05 || !gate(other ? 'stepo' : 'step', other ? 45 : 110)) return; const b = bus((0.3 + 0.32 * k) * vol, pan, 0);          // no reverb send: footsteps are frequent
   thump(b, { dur: 0.09, peak: 0.55, f: 84 * jit(0.12), drop: 1.7 });
   nz(b, { dur: 0.05, peak: 0.2, type: 'bandpass', f0: 1000 * jit(0.2), f1: 420, q: 0.9 });
 }
