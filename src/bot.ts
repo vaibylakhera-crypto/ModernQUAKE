@@ -48,6 +48,17 @@ function nameSprite(text: string, color: number): THREE.Sprite {
   const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: t, transparent: true, depthWrite: false, fog: false })); s.scale.set(1.5, 0.375, 1); return s;
 }
 
+/** each bot has a temperament (chosen from its name, so it stays the same all match): they fight and move differently */
+export type Persona = 'balanced' | 'rusher' | 'camper' | 'collector';
+const PERSONAS: Persona[] = ['rusher', 'camper', 'collector', 'balanced', 'rusher', 'collector', 'camper', 'balanced'];
+export const personaOf = (name: string): Persona => { let h = 0; for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return PERSONAS[h % PERSONAS.length]; };
+/** rusher: closes in and fights at close range · camper: holds a distance and waits · collector: always going for items and power-ups */
+const PERSONA = {
+  balanced:  { itemMul: 1,    hold: [6, 16] as const,  closest: 6, strafe: 0.75, idle: 0 },
+  rusher:    { itemMul: 0.7,  hold: [2.5, 9] as const, closest: 2, strafe: 0.95, idle: 0 },
+  camper:    { itemMul: 0.9,  hold: [8, 30] as const,  closest: 9, strafe: 0.6,  idle: 0.7 },
+  collector: { itemMul: 1.9,  hold: [6, 16] as const,  closest: 6, strafe: 0.75, idle: 0 },
+};
 const BOT_WEAPONS = new Set<WeaponId>(['plasma', 'rocket', 'nailer']);      // bots only use projectile weapons
 const SPEED = 6.2;
 
@@ -60,6 +71,9 @@ export class Bot implements Target {
   /** network id when the bot lives in an online room (0 offline) */
   netId = 0;
   skill = 1;
+  /** temperament, from the name */
+  get persona(): Persona { return (this._persona ??= personaOf(this.name)); }
+  private _persona?: Persona;
   /** 0 = free-for-all, 1 = RED, 2 = BLUE */
   team = 0;
   private lastBy = ''; private lastW = '';
@@ -132,19 +146,21 @@ export class Bot implements Target {
     let bestItem = -1, bestScore = 0;
     for (let i = 0; i < pickups.length; i++) {
       const n = itemNode[i]; if (n === undefined || !(dist[n] < 80) || !this.ctx.itemActive?.(i)) continue;
-      const v = this.itemValue(pickups[i]); if (v <= 0) continue;
+      const v = this.itemValue(pickups[i]) * PERSONA[this.persona].itemMul; if (v <= 0) continue;
       const sc = v / (1 + dist[n] / 14); if (sc > bestScore) { bestScore = sc; bestItem = i; }
     }
-    const hurt = this.health < 35, want = hurt ? 0.8 : this.seen ? 6 : 3.5;
+    const PR = PERSONA[this.persona], hurt = this.health < 35, want = (hurt ? 0.8 : this.seen ? 6 : 3.5) * (this.persona === 'collector' ? 0.5 : 1);
     let goal = -1;
     if (bestItem >= 0 && bestScore > want) goal = itemNode[bestItem];
     else if (hurt && this.seen) {                                  // retreat: run to a far corner away from the enemy
       let bd = -1; for (let k = 0; k < 8; k++) { const i = Math.floor(Math.random() * nodes.length), n = nodes[i]; if (n.kind !== 'floor' || !(dist[i] < 50)) continue; const d = Math.hypot(n.x - P.pos.x, n.z - P.pos.z); if (d > bd) { bd = d; goal = i; } }
-    } else if (this.seen && dE > 6 && dE < 16) goal = -1;           // in range with a clear shot: hold and strafe
+    } else if (this.seen && dE > PR.hold[0] && dE < PR.hold[1]) goal = -1;           // in range with a clear shot: hold and strafe
     else if (dE < 70) goal = nearestNode(P.pos.x, P.pos.y, P.pos.z, 9);   // hunt the enemy
-    if (goal < 0 && !(this.seen && dE > 6 && dE < 16)) {            // nothing to do: wander
+    if (goal < 0 && !(this.seen && dE > PR.hold[0] && dE < PR.hold[1])) {            // nothing to do: wander
       for (let k = 0; k < 10; k++) { const i = Math.floor(Math.random() * nodes.length), n = nodes[i]; if (n.kind === 'floor' && dist[i] < 60 && dist[i] > 12) { goal = i; break; } }
     }
+    // campers wait: much of the time they just stay put (and watch) instead of walking on
+    if (PR.idle && !this.seen && !hurt && bestItem < 0 && Math.random() < PR.idle) { this.path = []; this.pi = 0; this.brainT = 1.6 + Math.random() * 1.6; return; }
     this.path = goal >= 0 && dist[goal] < Infinity ? pathTo(prev, goal) : []; this.pi = this.path[0] === cur ? 1 : 0;
   }
   /** would a jump with this horizontal speed land on solid ground at about the same height? (no leaps into the void) */
@@ -173,8 +189,8 @@ export class Bot implements Target {
     if (this.seen && this.dodgeT <= 0) {
       this.strafeT -= dt; if (this.strafeT <= 0) { this.strafe = -this.strafe; this.strafeT = 0.7 + Math.random() * 1.3; }
       const dxe = P.pos.x - this.pos.x, dze = P.pos.z - this.pos.z, de = Math.hypot(dxe, dze) || 1;
-      w.x += (-dze / de) * this.strafe * sp * 0.75; w.z += (dxe / de) * this.strafe * sp * 0.75;
-      if (de < 6) { w.x -= (dxe / de) * sp * 0.7; w.z -= (dze / de) * sp * 0.7; }
+      const PS = PERSONA[this.persona]; w.x += (-dze / de) * this.strafe * sp * PS.strafe; w.z += (dxe / de) * this.strafe * sp * PS.strafe;
+      if (de < PS.closest) { w.x -= (dxe / de) * sp * 0.7; w.z -= (dze / de) * sp * 0.7; }
     }
     // never stroll off a platform edge while strafing / dodging (planned path steps may drop)
     if ((this.seen || this.dodgeT > 0) && this.grounded && w.lengthSq() > 0) {
