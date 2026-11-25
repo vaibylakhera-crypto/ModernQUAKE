@@ -130,6 +130,7 @@ export interface NetEvents {
   rtc(from: number, d: any): void;
   talk(id: number, on: boolean): void;
   host(id: number): void;
+  board(b: PlayerInfo[]): void;
   bots(list: { id: number; p: number[]; yaw: number; w: WeaponId; hp: number; dead: boolean; v?: number[] }[]): void;
   bothit(from: number, to: number, dmg: number, dir: number[], kind: string): void;
   renamed(id: number, name: string, board: PlayerInfo[]): void;
@@ -193,6 +194,7 @@ export class Net {
         case 'talk': this.ev.talk(m.id, !!m.on); break;
         case 'pong': this.ping = Math.round(performance.now() - m.c); break;
         case 'host': this.ev.host(m.host); break;
+        case 'board': this.ev.board(m.board); break;
         case 'bots': this.ev.bots(m.l); break;
         case 'bothit': this.ev.bothit(m.from, m.to, m.dmg, m.dir, m.kind); break;
         case 'renamed': this.ev.renamed(m.id, m.name, m.board); break;

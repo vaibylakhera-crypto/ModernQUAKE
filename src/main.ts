@@ -13,7 +13,7 @@ import { PISTOL_MAG, PISTOL_RELOAD } from './loadout';
 import { kitOptions } from './kit';
 import { getQuality } from './quality';
 import { Player, PM, Input } from './player';
-import { flags as levelFlags, torches as levelTorches, boxes, MAP_ID, BoosterId, THEME, pads as levelPads, teleporters as levelTeleporters, pickups as levelPickups, spawns as levelSpawns } from './level';
+import { hill as levelHill, flags as levelFlags, torches as levelTorches, boxes, MAP_ID, BoosterId, THEME, pads as levelPads, teleporters as levelTeleporters, pickups as levelPickups, spawns as levelSpawns } from './level';
 import { BOOSTERS } from './pickups';
 import { Viewmodel } from './viewmodel';
 import { Loadout } from './loadout';
@@ -32,7 +32,9 @@ import { Announcer } from './announcer';
 import { Gyro } from './gyro';
 import { LiftSystem } from './lifts';
 import * as navMod from './nav';
-import { TEAMS } from './teams';
+import { TEAMS, MODES, isTeamMode, LIVES, KOTH_PER_STEP } from './teams';
+import { buildHill } from './hill';
+import { rules as loadoutRules } from './loadout';
 import { Ctf } from './ctf';
 import { Voice, QUICK, quickText, VoiceMode } from './comms';
 import { lifts as __lifts, flags as flagBases } from './level';
@@ -390,7 +392,7 @@ const savedName = (() => { try { return (localStorage.getItem('mq-name') || '').
 let myName = ((qs.get('name') || savedName || 'PLAYER').toUpperCase().replace(/[^\w \-]/g, '').slice(0, 14)) || 'PLAYER';
 let mode: 'title' | 'solo' | 'online' = 'title';
 const intParam = (k: string, d: number) => { const v = Number(qs.get(k)); return qs.has(k) && Number.isFinite(v) ? v : d; };
-let cfg: MatchCfg = { map: MAP, mode: ['ffa', 'tdm', 'ctf'].includes(qs.get('gm') || '') ? qs.get('gm')! : 'ffa', bots: intParam('bots', 3), skill: intParam('skill', 1), frag: intParam('frag', 20), caps: intParam('caps', 3), time: intParam('time', 10), open: true };
+let cfg: MatchCfg = { map: MAP, mode: MODES.some(m => m.id === qs.get('gm')) ? qs.get('gm')! : 'ffa', bots: intParam('bots', 3), skill: intParam('skill', 1), frag: intParam('frag', 20), caps: intParam('caps', 3), time: intParam('time', 10), open: true };
 let ts: { 1: number; 2: number } = { 1: 0, 2: 0 };                   // team scores (TDM frags / CTF captures)
 let soloTeam = 0;                                                       // the local player's team in a solo match
 type FlagSt = { s: 'base' | 'carried' | 'dropped'; c: number; p: number[] | null };
@@ -398,7 +400,9 @@ let flagSt: { 1: FlagSt; 2: FlagSt } = { 1: { s: 'base', c: 0, p: null }, 2: { s
 let matchState: 'lobby' | 'playing' | 'ended' = 'playing';
 let endsAt = 0, timeOffset = 0, hostId = 0;
 const isHost = () => mode === 'online' && net.online && hostId === net.id;
-const teamMode = () => cfg.mode !== 'ffa';
+const teamMode = () => isTeamMode(cfg.mode);
+/** the score a match is played to: frags (DM, instagib), hold-seconds (hill), none for last man standing, captures for CTF handled apart */
+const fragLimit = () => cfg.mode === 'ctf' || cfg.mode === 'lms' ? 0 : cfg.mode === 'koth' ? cfg.frag * KOTH_PER_STEP : cfg.frag;
 const myTeam = () => (!teamMode() ? 0 : mode === 'online' ? (scoreboard.find(p => p.id === net.id)?.team ?? 0) : soloTeam);
 /** team of a projectile's owner: a bot's name (solo) or a network id as text (online) */
 function teamOfOwner(owner: string): number {
@@ -434,9 +438,11 @@ const botCtx: BotCtx = {
     return best ?? botCtxPlayer;
   },
   fire(id, o, d, dmg, sp, owner, bot) {
-    combat.fireEnemy(id, o, d, dmg, sp, owner); sfx.shot(id, Math.min(0.8, 9 / (o.distanceTo(camera.position) + 4)), panOf(o));
+    combat.fireEnemy(id, o, d, dmg * (loadoutRules.insta ? 12 : 1), sp, owner); sfx.shot(id, Math.min(0.8, 9 / (o.distanceTo(camera.position) + 4)), panOf(o));
     if (mode === 'online' && bot.netId) net.send({ t: 'fire', as: bot.netId, w: id, o: [o.x, o.y, o.z], d: [d.x, d.y, d.z] });
   },
+  hill: () => (cfg.mode === 'koth' ? { x: levelHill.pos[0], y: levelHill.pos[1], z: levelHill.pos[2], r: levelHill.r } : null),
+  canRespawn: b => !(cfg.mode === 'lms' && matchState === 'playing' && deathsOfBot(b) >= LIVES),
   onKilled(b, by, w) {
     if (mode === 'online') { net.send({ t: 'botdead', id: b.netId, by: by ? Number(by) : net.id, w }); return; }
     soloKill(by || 'me', b.name);
@@ -496,6 +502,42 @@ function refreshFrags() {
 
 // ---- match flow ----
 const mstat = { shots: 0, hits: 0, fire: 0, hitFire: -1, pickups: 0, heads: 0 };
+// ---- game-mode rules: instagib, last man standing, king of the hill ----
+let eliminated = false, wasInsta = false;
+const deathsOfBot = (b: Bot) => (mode === 'online' ? (scoreboard.find(p => p.id === b.netId)?.deaths ?? 0) : score(b.name).deaths);
+/** call whenever the room / match settings may have changed */
+function applyRules() {
+  loadoutRules.insta = cfg.mode === 'insta';
+  if (loadoutRules.insta !== wasInsta) { wasInsta = loadoutRules.insta; pickupSys.setEnabled(!loadoutRules.insta); }
+}
+/** a new match begins: everyone is back in */
+function resetModeState() { eliminated = false; hillAcc = 0; hillText = ''; Object.assign(mstat, { shots: 0, hits: 0, hitFire: -1, pickups: 0, heads: 0 }); }
+/** last man standing: out of lives = out for the rest of the match (you watch from above) */
+function checkMyElimination() {
+  if (cfg.mode !== 'lms' || matchState !== 'playing' || eliminated) return;
+  const me = board().find(p => p.id === myId()); if (!me || me.deaths < LIVES) return;
+  eliminated = true; player.health = 0; deadT = 1e9; vm.setVisible(false); say('ELIMINATED');
+}
+// king of the hill
+const hillVis = buildHill(); hillVis.group.visible = false; scene.add(hillVis.group);
+let hillText = '', hillAcc = 0;
+const inHill = (x: number, y: number, z: number) => Math.hypot(x - levelHill.pos[0], z - levelHill.pos[2]) < levelHill.r && Math.abs(y - levelHill.pos[1]) < 3;
+function hillTick(dt: number) {
+  const on = cfg.mode === 'koth' && matchState === 'playing' && mode !== 'title';
+  if (hillVis.group.visible !== on) hillVis.group.visible = on;
+  if (!on) { hillText = ''; return; }
+  hillVis.update(performance.now() / 1000);
+  hillAcc += dt; if (hillAcc < 1) return; hillAcc = 0;
+  const occ: { key: string; id: number; me?: boolean }[] = [];
+  if (player.health > 0 && inHill(player.x, player.y, player.z)) occ.push({ key: 'me', id: myId(), me: true });
+  for (const b of bots) if (b.alive && inHill(b.pos.x, b.pos.y, b.pos.z)) occ.push({ key: b.name, id: b.netId });
+  for (const r of remotes.values()) if (r.alive && inHill(r.pos.x, r.pos.y, r.pos.z)) occ.push({ key: 'p' + r.info.id, id: r.info.id });
+  const st = occ.length === 0 ? 'free' : occ.length > 1 ? 'contested' : occ[0].me ? 'mine' : 'theirs';
+  hillVis.setState(st); hillText = st === 'free' ? 'HILL FREE' : st === 'contested' ? 'CONTESTED' : st === 'mine' ? 'YOU HOLD' : 'ENEMY HOLDS';
+  if (occ.length !== 1) return;
+  if (mode === 'solo') { score(occ[0].key).frags++; refreshFrags(); checkSoloEnd(); }
+  else if (isHost()) net.send({ t: 'award', l: [[occ[0].id, 1]] });
+}
 const DEAD_TIME = 1.7;
 let deadT = 0, deadFor = 0, deathLook: THREE.Vector3 | null = null;
 function endDeath() { deadT = 0; vm.setVisible(true); }
@@ -509,17 +551,19 @@ function enemyXZ(): [number, number][] {
 const nowServer = () => Date.now() + timeOffset;
 const remaining = () => endsAt ? Math.max(0, (endsAt - nowServer()) / 1000) : -1;
 function startSoloMatch() {
-  announcer.reset(); Object.assign(mstat, { shots: 0, hits: 0, hitFire: -1, pickups: 0, heads: 0 }); matchStartMs = performance.now(); ts = { 1: 0, 2: 0 }; soloScore.clear(); matchState = 'playing'; endsAt = cfg.time ? Date.now() + cfg.time * 60000 : 0; timeOffset = 0;
-  endDeath(); player.respawn(); yaw = player.yaw; pitch = 0; loadout.reset(); vm.show('pistol'); lastBar = '';
+  applyRules(); resetModeState(); announcer.reset(); matchStartMs = performance.now(); ts = { 1: 0, 2: 0 }; soloScore.clear(); matchState = 'playing'; endsAt = cfg.time ? Date.now() + cfg.time * 60000 : 0; timeOffset = 0;
+  endDeath(); player.respawn(); yaw = player.yaw; pitch = 0; loadout.reset(); vm.show(loadout.best()); lastBar = '';
   for (const b of bots) b.respawn(); menu.hideEnd(); refreshFrags(); announcer.say('FIGHT', '', 2); pushView();
 }
 let soloEndTimer = 0;
 function checkSoloEnd() {
   if (mode !== 'solo' || matchState !== 'playing') return;
   const b = board(), lead = teamMode() ? Math.max(ts[1], ts[2]) : Math.max(...b.map(p => p.frags));
-  if ((cfg.frag && lead >= cfg.frag) || (endsAt && Date.now() >= endsAt)) {
+  const lmsDone = cfg.mode === 'lms' && b.length > 1 && b.filter(p => p.deaths < LIVES).length <= 1;
+  if ((fragLimit() && lead >= fragLimit()) || lmsDone || (endsAt && Date.now() >= endsAt)) {
     matchState = 'ended';
-    const sorted = [...b].sort((x, y) => y.frags - x.frags || x.deaths - y.deaths);
+    const left = (p: PlayerInfo) => Math.max(0, LIVES - p.deaths);
+    const sorted = [...b].sort((x, y) => cfg.mode === 'lms' ? left(y) - left(x) || y.frags - x.frags : y.frags - x.frags || x.deaths - y.deaths);
     menu.showEnd(sorted, sorted[0]?.id ?? -1, 0, 10, teamMode() ? (ts[1] > ts[2] ? 1 : ts[2] > ts[1] ? 2 : 0) : 0, ts, endStats(sorted, 0)); sfx.kill();
     clearTimeout(soloEndTimer); soloEndTimer = window.setTimeout(() => { if (mode === 'solo') startSoloMatch(); }, 10000);
     pushView();
@@ -533,7 +577,7 @@ function matchTick(dt: number) {
   { // how heated is the match? time used, how close someone is to winning, and how many kills just happened
     const now = performance.now(); while (recentKills.length && now - recentKills[0] > 22000) recentKills.shift();
     const total = cfg.time * 60000, prog = total ? Math.min(1, (now - matchStartMs) / total) : Math.min(1, (now - matchStartMs) / 600000);
-    const lead = teamMode() ? Math.max(ts[1], ts[2]) : Math.max(0, ...board().map(p => p.frags)), limit = cfg.mode === 'ctf' ? cfg.caps : cfg.frag;
+    const lead = teamMode() ? Math.max(ts[1], ts[2]) : Math.max(0, ...board().map(p => p.frags)), limit = cfg.mode === 'ctf' ? cfg.caps : fragLimit();
     const heat = Math.min(1, recentKills.length / 6), toWin = limit ? Math.min(1, lead / limit) : 0;
     music.setIntensity(matchState === 'playing' ? Math.min(1, 0.12 + 0.36 * prog + 0.3 * toWin + 0.3 * heat) : 0.14);
   }
@@ -541,7 +585,7 @@ function matchTick(dt: number) {
     const b = board(), mt = myTeam(), meId = myId(), r = remaining();
     const mine = teamMode() ? (mt ? ts[mt as 1 | 2] : 0) : (b.find(p => p.id === meId)?.frags ?? 0);
     const rest = teamMode() ? (mt ? ts[(3 - mt) as 1 | 2] : 0) : Math.max(-99, ...b.filter(p => p.id !== meId).map(p => p.frags));
-    const top = Math.max(mine, rest), limit = cfg.mode === 'ctf' ? 0 : cfg.frag;
+    const top = Math.max(mine, rest), limit = fragLimit();
     announcer.match(r, limit ? limit - top : -1, top > 0 && (teamMode() ? mt > 0 : true) ? (mine > rest ? 1 : mine === rest ? 0 : -1) : null, (performance.now() - matchStartMs) / 1000);
   }
   { const tl = pickupSys.timers(performance.now() / 1000), html = matchState === 'playing' ? tl.map(x => `<div class="tm" style="--c:#${x.color.toString(16).padStart(6, '0')}">${x.name}<i>${x.left}</i></div>`).join('') : ''; if (html !== timersHtml) { timersHtml = html; timersEl.innerHTML = html; } }
@@ -556,7 +600,9 @@ function matchTick(dt: number) {
       text = `<span class="tr">RED ${ts[1]}</span> ${clock ? `<b>${clock}</b>` : '·'} <span class="tb">${ts[2]} BLUE</span>${limit ? `<br><small>${limit}</small>` : ''}`;
       if (cfg.mode === 'ctf') { const fl = (n: 1 | 2) => { const s = flagSt[n]; return s.s === 'base' ? 'HOME' : s.s === 'carried' ? (s.c === net.id ? 'YOU HAVE IT' : 'TAKEN') : 'DROPPED'; }; text += `<br><small><span class="tr">⚑ ${fl(1)}</span> &nbsp; <span class="tb">⚑ ${fl(2)}</span></small>`; }
     }
-    else text = [clock, cfg.frag ? `FIRST TO ${cfg.frag}` : ''].filter(Boolean).join(' · ');
+    else if (cfg.mode === 'lms') { const b = board(), mine = b.find(p => p.id === myId()); text = [clock, `${b.filter(p => p.deaths < LIVES).length} ALIVE`, mine ? `<b>${'♥'.repeat(Math.max(0, LIVES - mine.deaths))}</b>` : ''].filter(Boolean).join(' · '); }
+    else if (cfg.mode === 'koth') text = [clock, `FIRST TO ${fragLimit()}`, hillText].filter(Boolean).join(' · ');
+    else text = [clock, fragLimit() ? `FIRST TO ${fragLimit()}` : ''].filter(Boolean).join(' · ');
   }
   if (matchEl.innerHTML !== text) matchEl.innerHTML = text;
   if (menu.open) pushView();
@@ -660,7 +706,7 @@ function applyRoom(info: RoomInfo) {
   ts = info.ts ?? { 1: 0, 2: 0 }; flagSt = info.flags ?? flagSt;
   syncNetBots(); for (const p of scoreboard) remotes.get(p.id)?.setTeam(p.team ?? 0);     // red / blue outfits
   const mt = myTeam(); if (mt !== armTeam) { armTeam = mt; vm.setTeam(mt); }
-  refreshFrags(); drawNet(); pushView(); syncVoicePeers(); return true;
+  applyRules(); refreshFrags(); drawNet(); pushView(); syncVoicePeers(); return true;
 }
 let localKillAt = 0, armTeam = 0;
 const net = new Net({
@@ -670,7 +716,7 @@ const net = new Net({
   leave(id) { const r = remotes.get(id); if (r) say(`${r.info.name} LEFT`); dropRemote(id); scoreboard = scoreboard.filter(p => p.id !== id); speaking.delete(id); drawSpeakers(); pushView(); syncVoicePeers(); },
   room(kind, info) {
     if (!applyRoom(info)) return;
-    if (kind === 'start') { menu.hideEnd(); endDeath(); player.respawn(); yaw = player.yaw; pitch = 0; loadout.reset(); vm.show('pistol'); lastBar = ''; for (const b of bots) b.respawn(); announcer.reset(); Object.assign(mstat, { shots: 0, hits: 0, hitFire: -1, pickups: 0, heads: 0 }); matchStartMs = performance.now(); announcer.say('FIGHT', '', 2); }
+    if (kind === 'start') { menu.hideEnd(); endDeath(); player.respawn(); yaw = player.yaw; pitch = 0; loadout.reset(); vm.show(loadout.best()); lastBar = ''; for (const b of bots) b.respawn(); announcer.reset(); resetModeState(); matchStartMs = performance.now(); announcer.say('FIGHT', '', 2); }
     if (kind === 'lobby') { menu.hideEnd(); say('WARMUP'); }
   },
   end(b, winner, _why, next, team, tsv) { matchState = 'ended'; scoreboard = b; endsAt = 0; if (tsv) ts = tsv; menu.showEnd(b, winner, net.id, next, team ?? 0, tsv ?? ts, endStats(b, net.id)); refreshFrags(); pushView(); },
@@ -678,6 +724,7 @@ const net = new Net({
   chat(from, to, k, txt) { onChat(from, to, k, txt); },
   rtc(from, d) { onRtc(from, d); },
   talk(id, on) { onTalk(id, on); },
+  board(b) { scoreboard = b; refreshFrags(); pushView(); if (cfg.mode === 'lms') checkMyElimination(); },
   host(id) { hostId = id; syncNetBots(); if (id === net.id) say('YOU ARE NOW THE HOST'); pushView(); },
   bots(list) { if (isHost()) return; for (const b of list) remotes.get(b.id)?.setState(b.p, b.yaw, b.w, b.hp, b.dead, b.v); },
   renamed(id, name, b) { scoreboard = b; remotes.get(id)?.rename(name); refreshFrags(); pushView(); },
@@ -692,7 +739,7 @@ const net = new Net({
   },
   hit(from, dmg, dir, kind) { if (player.health <= 0 || player.invuln > 0) return; blame(String(from), (kind in WEAPON_DEFS ? kind : 'pistol') as WeaponId); const d = dirV(dir); showDamageDir(-d.x, -d.z); buzz(30); player.knock(d.x * 1.5, 0.3, d.z * 1.5); sfx.hurt(); if (player.takeDamage(dmg)) die('DIED'); },
   killed(id, by, b, w, tsv, cap) {
-    scoreboard = b; if (tsv) ts = tsv; refreshFrags(); pushView();
+    scoreboard = b; if (tsv) ts = tsv; refreshFrags(); pushView(); checkMyElimination();
     if (cap) return;                                                          // a flag capture: the flag event announces it
     const v = b.find(p => p.id === id), k = b.find(p => p.id === by);
     if (!v) return;
@@ -924,14 +971,16 @@ function die(why: string) {
   }
   killer.who = ''; sfx.died(); announcer.died(); refreshFrags();
   say(why === 'EXPLODED' ? 'YOU BLEW UP' : why === 'FELL' ? 'YOU FELL' : 'YOU DIED');
-  if (why === 'FELL') { respawnNow(); return; }
+  if (why === 'FELL') { respawnNow(); checkMyElimination(); return; }
   // death cam: the view sinks to the floor and turns to the one who got you; a moment later you are back
   player.health = 0; player.armor = 0; deadT = DEAD_TIME; deadFor = 0; vm.setVisible(false); clearBoosters();
   const kp = by && by !== 'SELF' ? (/^\d+$/.test(by) ? remotes.get(Number(by))?.pos : bots.find(b => b.name === by)?.pos) : undefined;
   deathLook = kp ? new THREE.Vector3(kp.x, kp.y, kp.z) : null;
+  checkMyElimination();
 }
 function respawnNow() {
-  endDeath(); player.respawn(enemyXZ()); yaw = player.yaw; pitch = 0; loadout.reset(); vm.show('pistol'); lastBar = ''; clearBoosters(); sfx.spawn();
+  if (eliminated) return;
+  endDeath(); player.respawn(enemyXZ()); yaw = player.yaw; pitch = 0; loadout.reset(); vm.show(loadout.best()); lastBar = ''; clearBoosters(); sfx.spawn();
 }
 player.onVoid = () => die('FELL');
 
@@ -1061,7 +1110,8 @@ function tryFire(dt: number) {
   if (!loadout.canFire(id)) { loadout.cooldown = 0.3; if (id !== 'blade' && id !== 'pistol') vm.select(loadout.best()); return; }
   // keep the real fire rate even when a frame is slow: carry leftover time and fire up to 3 shots this frame
   for (let n = 0; n < 3 && loadout.cooldown <= 0 && loadout.canFire(id); n++) {
-    loadout.cooldown = Math.max(loadout.cooldown, -st.interval) + st.interval; loadout.consume(id);
+    const iv = loadoutRules.insta ? 0.8 : st.interval;
+    loadout.cooldown = Math.max(loadout.cooldown, -iv) + iv; loadout.consume(id);
     doFire(id);
   }
 }
@@ -1080,6 +1130,11 @@ function doFire(id: Parameters<typeof combat.fire>[0]) {
 let stepDist = 0, heartT = 0, lastJumps = 0;
 function feelTick(dt: number) {
   if (deadT > 0) {                                           // death cam: sink to the floor, tilt, and look at whoever got us
+    if (eliminated) {                                        // out of lives: orbit a fighter who is still alive
+      const t = bots.find(b => b.alive)?.pos ?? [...remotes.values()].find(r => r.alive)?.pos;
+      if (t) { const a = performance.now() / 4500; camera.position.set(t.x + Math.sin(a) * 6, t.y + 3.4, t.z + Math.cos(a) * 6); camera.lookAt(t.x, t.y + 1.2, t.z); camera.rotation.z = 0; }
+      return;
+    }
     deadFor += dt; deadT -= dt;
     const k = Math.min(1, deadFor / 0.45);
     camera.position.y = player.y + player.eye + (0.3 - player.eye) * k; camera.rotation.z = 0.55 * k;
@@ -1162,7 +1217,7 @@ function frame(now: number) {
     crossEl.classList.toggle('dry', !loadout.canFire(vm.current)); if (crossEl.dataset.w !== vm.current) crossEl.dataset.w = vm.current;
     if (vm.target !== lastWeapon) { if (lastWeapon) sfx.swap(); lastWeapon = vm.target; }
     net.sendState(bdt, { p: [player.x, player.y, player.z], yaw, pitch, w: vm.current, hp: player.health, dead: deadT > 0 });
-    netTick(bdt); matchTick(bdt); ctfTick(now / 1000); if (!frozen) boosterTick(bdt); }
+    netTick(bdt); matchTick(bdt); hillTick(bdt); ctfTick(now / 1000); if (!frozen) boosterTick(bdt); }
   combat.setViewHeight(renderer.domElement.height);
   if (!(window as any).__freeze && !frozen) combat.update(Math.min(0.05, frameMs / 1000));
   stars.update(camera, renderer.getPixelRatio());
@@ -1180,4 +1235,4 @@ function frame(now: number) {
 requestAnimationFrame(frame);
 
 // dev/test hook
-(window as any).__game = { bots, net, remotes, menu, stars, scene, sfx, Music, music, announcer, feed, riders, nav: navMod, voice, get ts() { return ts; }, myTeam, flagSt: () => flagSt, teamOfOwner, soloKill, grantBooster, boost, liftSys, lifts: __lifts, level: { torches: levelTorches, pads: levelPads, teleporters: levelTeleporters, boxes, pickups: levelPickups, spawns: levelSpawns }, get mode() { return mode; }, get matchState() { return matchState; }, scores: () => board(), doFire, player, camera, vm, loadout, combat, pickupSys, targets, say, die, renderer, world, Q, get scale() { return renderScale; }, setLook: (y: number, p: number) => { yaw = y; pitch = p; }, PM, fx: (lvl: number) => setFireQuality(lvl, TOUCH), assistTest: { get yaw() { return yaw; }, get pitch() { return pitch; }, get friction() { return assistFriction; }, setFire: (v: boolean) => { mouseDown = v; }, step: (dt: number) => aimAssist(dt) } };
+(window as any).__game = { bots, net, remotes, menu, stars, scene, sfx, Music, music, announcer, feed, riders, nav: navMod, voice, get ts() { return ts; }, myTeam, flagSt: () => flagSt, teamOfOwner, soloKill, grantBooster, boost, liftSys, lifts: __lifts, level: { torches: levelTorches, pads: levelPads, teleporters: levelTeleporters, boxes, pickups: levelPickups, spawns: levelSpawns }, get mode() { return mode; }, get matchState() { return matchState; }, scores: () => board(), doFire, player, camera, vm, loadout, combat, pickupSys, targets, say, die, renderer, world, Q, get scale() { return renderScale; }, setLook: (y: number, p: number) => { yaw = y; pitch = p; }, PM, fx: (lvl: number) => setFireQuality(lvl, TOUCH), modeDbg: { get eliminated() { return eliminated; }, get hillText() { return hillText; }, get cfg() { return cfg; }, get deadT() { return deadT; }, score }, assistTest: { get yaw() { return yaw; }, get pitch() { return pitch; }, get friction() { return assistFriction; }, setFire: (v: boolean) => { mouseDown = v; }, step: (dt: number) => aimAssist(dt) } };

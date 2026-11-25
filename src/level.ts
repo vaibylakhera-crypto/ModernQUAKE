@@ -504,6 +504,12 @@ export const botZones = DEF.botZones;
 /** a touch less fog than the raw theme so the far side of a map is readable */
 export const THEME = { ...DEF.theme, fogD: DEF.theme.fogD * 0.65 };
 export const flags = DEF.flags;
+/** King of the Hill: the zone that scores (a circle on a floor). Every map has one, on its most contested ground */
+const HILLS: Record<string, { pos: [number, number, number]; r: number }> = {
+  boreal: { pos: [0, 20, 0], r: 5 }, void: { pos: [0, 20, 0], r: 5 }, spire: { pos: [0, 16, 0], r: 3.4 }, bastion: { pos: [0, 0, 0], r: 5.5 },
+  foundry: { pos: [0, 1.2, 0], r: 3.4 }, crypt: { pos: [0, 0, 0], r: 3.6 }, ring: { pos: [0, 10, 0], r: 4.5 }, tower: { pos: [0, 0, 0], r: 4 }, canyon: { pos: [0, 13, 0], r: 4.5 },
+};
+export const hill = HILLS[MAP_ID] ?? { pos: [0, 0, 0] as [number, number, number], r: 4 };
 
 /** Compute launch velocity from `from` to land at `to` with a given apex height above the higher point. */
 export function jumpPadVelocity(from: [number, number, number], to: [number, number, number], apexExtra = 3): [number, number, number] {

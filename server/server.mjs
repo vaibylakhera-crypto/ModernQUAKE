@@ -58,7 +58,8 @@ const rooms = new Map();
 let nextId = 1, nextBot = 1000;
 const MAPS = new Set(['boreal', 'void', 'spire', 'bastion', 'foundry', 'crypt', 'ring', 'tower', 'canyon']);
 const CTF_MAPS = new Set(['spire', 'bastion', 'foundry', 'crypt', 'ring', 'tower', 'canyon']);     // maps that have flag bases
-const MODES = new Set(['ffa', 'tdm', 'ctf']);
+const MODES = new Set(['ffa', 'tdm', 'ctf', 'insta', 'lms', 'koth']);
+const LIVES = 3, KOTH_PER_STEP = 4;       // last man standing lives; king-of-the-hill points per frag-limit step (1 point = 1 second held)
 const BOT_POOL = [
   { name: 'RAZOR', weapon: 'plasma' }, { name: 'VEX', weapon: 'plasma' }, { name: 'KRAIT', weapon: 'rocket' }, { name: 'NYX', weapon: 'nailer' },
   { name: 'ONYX', weapon: 'plasma' }, { name: 'HEX', weapon: 'rocket' }, { name: 'MORROW', weapon: 'nailer' }, { name: 'ZOLA', weapon: 'plasma' },
@@ -93,7 +94,7 @@ const bcast = (room, o, except) => { const s = JSON.stringify(o); for (const [id
 const bcastTeam = (room, team, o) => { const s = JSON.stringify(o); for (const p of room.players.values()) if ((!team || p.team === team) && p.ws.readyState === 1) p.ws.send(s); };
 const usedColors = room => new Set([...room.players.values(), ...room.bots.values()].map(p => p.color));
 const pickColor = (room, id) => COLORS.find(c => !usedColors(room).has(c)) ?? COLORS[id % COLORS.length];
-const teamMode = room => room.cfg.mode !== 'ffa';
+const teamMode = room => room.cfg.mode === 'tdm' || room.cfg.mode === 'ctf';
 const flagView = room => ({ 1: { s: room.flags[1].s, c: room.flags[1].c, p: room.flags[1].p }, 2: { s: room.flags[2].s, c: room.flags[2].c, p: room.flags[2].p } });
 const roomInfo = room => ({ room: room.code, host: room.host, cfg: room.cfg, state: room.state, endsAt: room.endsAt, now: Date.now(), players: board(room), ts: room.ts, flags: flagView(room) });
 const everyone = room => [...room.players.values(), ...room.bots.values()];
@@ -137,7 +138,8 @@ function dropFlagsOf(room, id) {
 function endMatch(room, why) {
   if (room.state !== 'playing') return;
   room.state = 'ended'; room.endsAt = 0;
-  const b = board(room).sort((a, z) => z.frags - a.frags || a.deaths - z.deaths);
+  const lms = room.cfg.mode === 'lms', left = p => Math.max(0, LIVES - p.deaths);
+  const b = board(room).sort((a, z) => lms ? left(z) - left(a) || z.frags - a.frags : z.frags - a.frags || a.deaths - z.deaths);
   const winTeam = teamMode(room) ? (room.ts[1] > room.ts[2] ? 1 : room.ts[2] > room.ts[1] ? 2 : 0) : 0;
   bcast(room, { t: 'end', why, board: b, winner: b[0] ? b[0].id : 0, team: winTeam, ts: room.ts, next: 12 });
   clearTimeout(room.endTimer);
@@ -146,7 +148,9 @@ function endMatch(room, why) {
 function checkLimits(room) {
   if (room.state !== 'playing') return;
   const m = room.cfg.mode, mx = Math.max(room.ts[1], room.ts[2]);
-  if (m === 'ffa') { if (room.cfg.frag > 0 && board(room).some(p => p.frags >= room.cfg.frag)) endMatch(room, 'frag'); }
+  if (m === 'ffa' || m === 'insta') { if (room.cfg.frag > 0 && board(room).some(p => p.frags >= room.cfg.frag)) endMatch(room, 'frag'); }
+  else if (m === 'koth') { if (room.cfg.frag > 0 && board(room).some(p => p.frags >= room.cfg.frag * KOTH_PER_STEP)) endMatch(room, 'hill'); }
+  else if (m === 'lms') { const all = board(room); if (all.length > 1 && all.filter(p => p.deaths < LIVES).length <= 1) endMatch(room, 'last'); }
   else if (m === 'tdm') { if (room.cfg.frag > 0 && mx >= room.cfg.frag) endMatch(room, 'frag'); }
   else if (mx >= room.cfg.caps) endMatch(room, 'caps');
 }
@@ -158,6 +162,7 @@ function scoreKill(room, killer, victim) {
   victim.deaths++;
   if (!killer || killer === victim) return;
   if (sameTeam(killer, victim)) return;
+  if (room.cfg.mode === 'koth') return;                          // king of the hill scores only from holding the zone
   killer.frags++; if (room.cfg.mode === 'tdm' && killer.team) room.ts[killer.team]++;
 }
 const okPos = p => Array.isArray(p) && p.length === 3 && p.every(v => Number.isFinite(v)) ? [p[0], p[1], p[2]] : null;
@@ -243,6 +248,11 @@ wss.on('connection', (ws, req) => {
         clearTimeout(room.endTimer); resetScores(room); room.state = 'playing';
         room.endsAt = room.cfg.time > 0 ? Date.now() + room.cfg.time * 60000 : 0;
         bcast(room, { t: 'start', ...roomInfo(room) }); break;
+      }
+      case 'award': {                                               // king of the hill: the host reports who held the zone this second
+        if (!isHost() || room.state !== 'playing' || room.cfg.mode !== 'koth' || !Array.isArray(m.l)) return;
+        for (const e of m.l.slice(0, 10)) { const t = credit(room, Number(e[0])); if (t) t.frags += Math.min(3, Math.max(0, Number(e[1]) || 0)); }
+        bcast(room, { t: 'board', board: board(room) }); checkLimits(room); break;
       }
       case 'stop': { if (isHost() && room.state === 'playing') endMatch(room, 'host'); break; }
       case 'rename': {

@@ -103,9 +103,14 @@ export class Pickups {
     });
   }
 
+  /** instagib: no pickups at all (they are hidden and ignored) */
+  enabled = true;
+  setEnabled(on: boolean) { this.enabled = on; for (const it of this.items) { it.group.visible = on; if (!on) it.active = false; else { it.active = true; it.item.visible = it.label.visible = it.col.visible = true; } } }
+
   /** returns the defs picked up this frame; `accept` decides whether the player can use it (e.g. not already full) */
   update(t: number, p: { x: number; y: number; z: number }, accept: (d: PickupDef) => boolean): PickupDef[] {
     const got: PickupDef[] = [];
+    if (!this.enabled) return got;
     for (const it of this.items) {
       if (!it.active) {
         if (t >= it.respawnAt) { it.active = true; it.item.visible = it.label.visible = it.col.visible = true; it.ring.color.set(it.color).multiplyScalar(1.7); }
@@ -124,7 +129,7 @@ export class Pickups {
 
   /** a bot takes item i (same respawn timers as for the player) */
   claim(i: number, t: number): PickupDef | null {
-    const it = this.items[i]; if (!it || !it.active) return null;
+    const it = this.items[i]; if (!this.enabled || !it || !it.active) return null;
     it.active = false; it.respawnAt = t + RESPAWN[it.def.kind]; it.item.visible = it.label.visible = it.col.visible = false; return it.def;
   }
 

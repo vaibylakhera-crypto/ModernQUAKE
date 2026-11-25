@@ -22,6 +22,10 @@ export interface BotCtx {
   itemActive?(i: number): boolean;
   claimItem?(i: number): PickupDef | null;
   /** projectiles that could hit a bot soon (for dodging) */
+  /** king of the hill: the zone bots should fight over (null in other modes) */
+  hill?(): { x: number; y: number; z: number; r: number } | null;
+  /** last man standing: may this bot come back? */
+  canRespawn?(b: Bot): boolean;
   incoming?(p: THREE.Vector3, owner: string): { pos: THREE.Vector3; vel: THREE.Vector3; splash: number }[];
 }
 /** 0 easy · 1 normal · 2 hard */
@@ -149,9 +153,13 @@ export class Bot implements Target {
       const v = this.itemValue(pickups[i]) * PERSONA[this.persona].itemMul; if (v <= 0) continue;
       const sc = v / (1 + dist[n] / 14); if (sc > bestScore) { bestScore = sc; bestItem = i; }
     }
+    // king of the hill: the zone is worth fighting for
+    const HL = this.ctx.hill?.(); let hillGoal = -1;
+    if (HL) { const hn = nearestNode(HL.x, HL.y, HL.z, HL.r + 4); if (hn >= 0 && dist[hn] < 90) { const sc = 11 / (1 + dist[hn] / 22); if (sc > bestScore) { bestScore = sc; bestItem = -1; hillGoal = hn; } } }
     const PR = PERSONA[this.persona], hurt = this.health < 35, want = (hurt ? 0.8 : this.seen ? 6 : 3.5) * (this.persona === 'collector' ? 0.5 : 1);
     let goal = -1;
-    if (bestItem >= 0 && bestScore > want) goal = itemNode[bestItem];
+    if (hillGoal >= 0 && bestScore > want * 0.5 && !hurt) { goal = Math.hypot(this.pos.x - HL!.x, this.pos.z - HL!.z) < HL!.r * 0.6 ? -1 : hillGoal; if (goal < 0) { this.path = []; this.pi = 0; return; } }
+    else if (bestItem >= 0 && bestScore > want) goal = itemNode[bestItem];
     else if (hurt && this.seen) {                                  // retreat: run to a far corner away from the enemy
       let bd = -1; for (let k = 0; k < 8; k++) { const i = Math.floor(Math.random() * nodes.length), n = nodes[i]; if (n.kind !== 'floor' || !(dist[i] < 50)) continue; const d = Math.hypot(n.x - P.pos.x, n.z - P.pos.z); if (d > bd) { bd = d; goal = i; } }
     } else if (this.seen && dE > PR.hold[0] && dE < PR.hold[1]) goal = -1;           // in range with a clear shot: hold and strafe
@@ -242,7 +250,7 @@ export class Bot implements Target {
     const P = this.ctx.target ? this.ctx.target(this) : this.ctx.player;
     if (!this.alive) {
       this.deadT += dt; this.fall = Math.min(1, this.deadT * 2.2);
-      if (this.deadT > 4.5) this.respawn(P.pos);
+      if (this.deadT > 4.5 && (this.ctx.canRespawn?.(this) ?? true)) this.respawn(P.pos);
       this.apply(dt, 0); this.bar.visible = false; return;
     }
     this.pain = Math.max(0, this.pain - dt * 3); this.fireK = Math.max(0, this.fireK - dt * 6); this.cooldown -= dt;

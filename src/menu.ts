@@ -4,7 +4,7 @@ import type { MatchCfg, PlayerInfo } from './net';
 import type { GyroMode } from './gyro';
 import type { VoiceMode } from './comms';
 import { MAP_LIST, MAPS } from './level';
-import { TEAMS, MODES, modeName } from './teams';
+import { TEAMS, MODES, modeName, isTeamMode, LIVES, KOTH_PER_STEP } from './teams';
 
 export type Screen = 'welcome' | 'title' | 'setup' | 'join' | 'lobby' | 'pause' | 'settings';
 export interface OpenGame { room: string; host: string; players: number; bots: number; map: string; mode?: string; state: string; frag: number; time: number }
@@ -303,7 +303,7 @@ export class Menu {
   /** mode cards, map cards and match options. solo: CTF is online-only. editable=false shows a read-only copy (lobby, non-host) */
   private setupControls(c: MatchCfg, o: { solo: boolean; host: boolean; editable: boolean }) {
     const dis = o.editable ? '' : 'disabled';
-    const icons: Record<string, string> = { ffa: '☠', tdm: '⚑', ctf: '⛿' };
+    const icons: Record<string, string> = { ffa: '☠', tdm: '⚑', ctf: '⛿', insta: '✦', lms: '♥', koth: '♛' };
     const modes = MODES.map(m => {
       const blocked = o.solo && m.id === 'ctf';
       return `<div class="mm ${c.mode === m.id ? 'on' : ''} ${blocked || !o.editable ? 'dis' : ''}" ${!blocked && o.editable ? `data-a="cfg" data-k="mode" data-v="${m.id}"` : ''}>${blocked ? '<em>ONLINE</em>' : ''}<span class="ic">${icons[m.id] ?? '•'}</span><b>${m.name}</b><span>${m.desc}</span></div>`;
@@ -316,11 +316,15 @@ export class Menu {
       `<div class="m-seg">${vals.map(v => `<button ${dis} data-a="cfg" data-k="${key}" data-v="${v}" class="${v === cur ? 'on' : ''}">${label(v)}</button>`).join('')}</div>`;
     const limit = c.mode === 'ctf'
       ? `<div class="m-field"><label>CAPTURE LIMIT</label>${seg('caps', CAPS, v => String(v), c.caps)}</div>`
+      : c.mode === 'lms'
+      ? `<div class="m-field"><label>LIVES</label><div class="m-note">Everyone gets ${LIVES} lives. Out of lives = out of the match. The last one alive wins (or the most lives left when time runs out).</div></div>`
+      : c.mode === 'koth'
+      ? `<div class="m-field"><label>HOLD TIME TO WIN (SECONDS)</label>${seg('frag', FRAGS, v => (v ? String(v * KOTH_PER_STEP) : 'OFF'), c.frag)}<div class="m-note">One point for every second you hold the zone alone.</div></div>`
       : `<div class="m-field"><label>${c.mode === 'tdm' ? 'TEAM FRAG LIMIT' : 'FRAG LIMIT'}</label>${seg('frag', FRAGS, v => (v ? String(v) : 'OFF'), c.frag)}</div>`;
     return `<div class="m-h">GAME MODE</div><div class="m-modes">${modes}</div>
       <div class="m-h">MAP</div><div class="m-maps">${maps}</div>
       <div class="m-h">MATCH</div>
-      <div class="m-field"><label>BOTS ${c.mode !== 'ffa' ? '· FILL BOTH TEAMS' : ''}</label><div class="m-step"><button class="m-btn small" ${dis} data-a="cfg" data-k="bots" data-v="${Math.max(0, c.bots - 1)}">−</button><b>${c.bots}</b><button class="m-btn small" ${dis} data-a="cfg" data-k="bots" data-v="${Math.min(7, c.bots + 1)}">+</button></div></div>
+      <div class="m-field"><label>BOTS ${isTeamMode(c.mode) ? '· FILL BOTH TEAMS' : ''}</label><div class="m-step"><button class="m-btn small" ${dis} data-a="cfg" data-k="bots" data-v="${Math.max(0, c.bots - 1)}">−</button><b>${c.bots}</b><button class="m-btn small" ${dis} data-a="cfg" data-k="bots" data-v="${Math.min(7, c.bots + 1)}">+</button></div></div>
       <div class="m-field"><label>BOT SKILL</label>${seg('skill', [0, 1, 2], v => SKILLS[v], c.skill)}</div>
       ${limit}
       <div class="m-field"><label>TIME LIMIT (MIN)</label>${seg('time', TIMES, v => (v ? String(v) : 'OFF'), c.time)}</div>
@@ -363,12 +367,12 @@ export class Menu {
   }
   private matchLine(v: LobbyView) {
     const t = v.remaining >= 0 ? `${Math.floor(v.remaining / 60)}:${String(Math.floor(v.remaining % 60)).padStart(2, '0')} LEFT` : 'NO TIME LIMIT';
-    const f = v.cfg.mode === 'ctf' ? `FIRST TO ${v.cfg.caps} CAPTURES` : v.cfg.frag ? `FIRST TO ${v.cfg.frag}` : 'NO FRAG LIMIT';
+    const f = v.cfg.mode === 'ctf' ? `FIRST TO ${v.cfg.caps} CAPTURES` : v.cfg.mode === 'lms' ? `${LIVES} LIVES EACH` : v.cfg.mode === 'koth' ? `HOLD ${v.cfg.frag * KOTH_PER_STEP} SECONDS` : v.cfg.frag ? `FIRST TO ${v.cfg.frag}` : 'NO FRAG LIMIT';
     return v.state === 'playing' ? `MATCH ON · ${t} · ${f}` : v.state === 'ended' ? 'MATCH OVER' : v.mode === 'online' ? (v.isHost ? 'WARMUP · START WHEN READY' : 'WARMUP · WAITING FOR HOST') : 'READY';
   }
   private r_lobby() {
     const v = this.view; if (!v) return `<div class="m-status">CONNECTING…</div>`;
-    const m = MAPS[v.cfg.map], teamGame = v.cfg.mode !== 'ffa', canShare = typeof navigator.share === 'function';
+    const m = MAPS[v.cfg.map], teamGame = isTeamMode(v.cfg.mode), canShare = typeof navigator.share === 'function';
     const vs = this.h.voice.state();
     const humans = v.players.filter(p => !p.bot), bots = v.players.filter(p => p.bot);
     let body: string;
@@ -397,7 +401,7 @@ export class Menu {
   private r_pause() {
     const v = this.view;
     if (v && v.mode === 'online') return this.r_lobby();
-    const teamGame = !!v && v.cfg.mode !== 'ffa';
+    const teamGame = !!v && isTeamMode(v.cfg.mode);
     return `${this.head('PAUSED', false)}
       ${v ? `<div class="m-status" data-o="status">${this.matchLine(v)}</div>${teamGame ? `<div class="m-tscore"><span class="tr">RED ${v.ts[1]}</span><span class="tb">${v.ts[2]} BLUE</span></div>` : ''}${this.scoreRows(v.players, v.meId, -1, v.ts, teamGame)}` : ''}
       <div class="m-col" style="margin-top:14px"><button class="m-btn pri" data-a="resume">RESUME</button>
@@ -558,7 +562,7 @@ export class Menu {
   showScores(on: boolean) {
     const v = this.view;
     if (on && v) {
-      const tg = v.cfg.mode !== 'ffa';
+      const tg = isTeamMode(v.cfg.mode);
       this.scoreEl.innerHTML = `<div class="m-status">${this.matchLine(v)}</div>${tg ? `<div class="m-tscore"><span class="tr">RED ${v.ts[1]}</span><span class="tb">${v.ts[2]} BLUE</span></div>` : ''}${this.scoreRows(v.players, v.meId, v.mode === 'online' ? v.hostId : -1, v.ts, tg)}`;
     }
     this.scoreEl.style.display = on ? 'block' : 'none';

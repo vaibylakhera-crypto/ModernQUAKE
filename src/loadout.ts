@@ -3,6 +3,9 @@ import { WEAPON_DEFS, WEAPON_ORDER, WeaponId } from './weapons';
 /** The sidearm has infinite ammo but a 12-round magazine and a short reload (everything else is Quake-style: one pool, no reloading). */
 export const PISTOL_MAG = 12, PISTOL_RELOAD = 1.15;
 
+/** match rules that change what you carry: instagib gives everyone only an infinite rail */
+export const rules = { insta: false };
+
 /** What the player carries: owned weapons + ammo. Blade and sidearm are always owned and need no ammo. */
 export class Loadout {
   owned = new Set<WeaponId>();
@@ -13,8 +16,8 @@ export class Loadout {
   constructor() { this.reset(); }
 
   reset() {
-    this.owned = new Set<WeaponId>(['blade', 'pistol']);
-    for (const id of WEAPON_ORDER) this.ammo[id] = WEAPON_DEFS[id].stats.ammoStart < 0 ? Infinity : 0;
+    this.owned = new Set<WeaponId>(rules.insta ? ['rail'] : ['blade', 'pistol']);
+    for (const id of WEAPON_ORDER) this.ammo[id] = WEAPON_DEFS[id].stats.ammoStart < 0 || (rules.insta && id === 'rail') ? Infinity : 0;
     this.cooldown = 0; this.mag = PISTOL_MAG; this.reloadT = 0;
   }
   get reloading() { return this.reloadT > 0; }
@@ -33,7 +36,7 @@ export class Loadout {
     if (this.ammo[id] >= st.ammoMax) return 'full';
     this.ammo[id] = Math.min(st.ammoMax, this.ammo[id] + st.ammoPickup); return 'ammo';
   }
-  wouldAccept(id: WeaponId) { return !this.owned.has(id) || this.ammo[id] < WEAPON_DEFS[id].stats.ammoMax; }
+  wouldAccept(id: WeaponId) { if (rules.insta) return false; return !this.owned.has(id) || this.ammo[id] < WEAPON_DEFS[id].stats.ammoMax; }
 
   /** owned weapons in slot order */
   list(): WeaponId[] { return WEAPON_ORDER.filter(w => this.owned.has(w)); }
