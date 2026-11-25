@@ -362,7 +362,8 @@ function teamOfOwner(owner: string): number {
 }
 const friendlyOwner = (owner: string) => { const t = myTeam(); return t > 0 && teamOfOwner(owner) === t; };
 /** solo pauses while the menu is open; online the world keeps going */
-const paused = () => mode !== 'online' && (menu.open || guideOpen);
+let layoutEditing = false;
+const paused = () => mode !== 'online' && (menu.open || guideOpen || layoutEditing);
 
 // ---- bots (solo: local; online: run by the host, everyone else sees them as remote players) ----
 const bots: Bot[] = [];
@@ -522,6 +523,20 @@ function pushView() {
   };
   menu.setView(v);
 }
+
+// ---- touch controls: drag-to-place layout editor ----
+const layoutBar = document.createElement('div'); layoutBar.id = 'layoutbar';
+layoutBar.innerHTML = '<span>DRAG THE BUTTONS</span><button data-r="1">RESET</button><button class="go" data-d="1">DONE</button>'; document.body.appendChild(layoutBar);
+function editLayout() {
+  if (!touch) return;
+  layoutEditing = true; menu.hide(); touch.show(true); touch.setEdit(true); layoutBar.classList.add('open');
+}
+layoutBar.addEventListener('click', e => {
+  const t = e.target as HTMLElement;
+  if (t.dataset.r) touch?.resetLayout();
+  if (t.dataset.d) { layoutEditing = false; touch?.setEdit(false); layoutBar.classList.remove('open'); menu.show('settings'); }
+});
+for (const ev of ['touchstart', 'touchend'] as const) layoutBar.addEventListener(ev, e => e.stopPropagation(), { passive: true });
 
 // ---- touch controls: size / opacity, first-time guide ----
 function applyControlLook(size: number, alpha: number) {
@@ -830,6 +845,7 @@ const menu = new Menu({
     }
   },
   showGuide: () => showGuide(true),
+  editLayout: () => editLayout(),
   audio: {
     musicVolume: () => music.volume, setMusicVolume: v => music.setVolume(v),
     announcer: () => announcer.enabled, setAnnouncer: v => announcer.setEnabled(v),

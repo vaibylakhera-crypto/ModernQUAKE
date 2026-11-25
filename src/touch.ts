@@ -24,6 +24,10 @@ export class TouchControls {
   private lookIds = new Map<number, { x: number; y: number }>();
   private fireId: number | null = null; private micId: number | null = null;
   private base: HTMLDivElement; private knob: HTMLDivElement;
+  /** user-moved controls: offsets in px from the default spot, saved on the device */
+  private layout: Record<string, [number, number]> = {};
+  private editing = false; private dragId: number | null = null; private dragKey = ''; private dragFrom: [number, number] = [0, 0]; private dragStart: [number, number] = [0, 0];
+  private static readonly MOVABLE = ['fire', 'jump', 'crouch', 'weap', 'stick'];
 
   constructor(private hooks: TouchHooks) {
     const el = this.el = document.createElement('div'); el.id = 'touch';
@@ -41,13 +45,54 @@ export class TouchControls {
       <button class="tbtn tpause" data-b="pause">${svg('<path d="M5 7h14M5 12h14M5 17h14"/>')}</button>`;
     document.body.appendChild(el);
     this.base = el.querySelector<HTMLDivElement>('.tstick')!; this.knob = this.base.querySelector<HTMLDivElement>('i')!;
-    this.home();
+    try { this.layout = JSON.parse(localStorage.getItem('mq-layout') || '{}') || {}; } catch { this.layout = {}; }
+    this.applyLayout(); this.home();
     const opt = { passive: false } as AddEventListenerOptions;
-    el.addEventListener('touchstart', e => this.start(e), opt);
-    el.addEventListener('touchmove', e => this.move(e), opt);
-    el.addEventListener('touchend', e => this.end(e), opt);
-    el.addEventListener('touchcancel', e => this.end(e), opt);
+    el.addEventListener('touchstart', e => { if (this.editing) { e.preventDefault(); this.editStart(e); } else this.start(e); }, opt);
+    el.addEventListener('touchmove', e => { if (this.editing) { e.preventDefault(); this.editMove(e); } else this.move(e); }, opt);
+    el.addEventListener('touchend', e => { if (this.editing) { e.preventDefault(); this.editEnd(e); } else this.end(e); }, opt);
+    el.addEventListener('touchcancel', e => { if (this.editing) this.editEnd(e); else this.end(e); }, opt);
     el.addEventListener('contextmenu', e => e.preventDefault());
+  }
+
+  private applyLayout() {
+    for (const k of TouchControls.MOVABLE) {
+      if (k === 'stick') continue;
+      const b = this.el.querySelector<HTMLElement>(`.tbtn[data-b=${k}]`), o = this.layout[k] ?? [0, 0];
+      if (b) { b.style.setProperty('--dx', `${o[0]}px`); b.style.setProperty('--dy', `${o[1]}px`); }
+    }
+  }
+  private save() { try { localStorage.setItem('mq-layout', JSON.stringify(this.layout)); } catch { /* ignore */ } }
+  /** drag-to-place mode: the controls can be moved with a finger; the stick's resting spot too */
+  setEdit(on: boolean) { this.editing = on; this.el.classList.toggle('editing', on); if (on) { this.reset(); this.home(); } }
+  resetLayout() { this.layout = {}; this.save(); this.applyLayout(); this.home(); }
+  /** keep a moved control fully on screen */
+  private clamp(el: HTMLElement, key: string) {
+    const o = this.layout[key] ?? [0, 0], r = el.getBoundingClientRect(), m = 6;
+    let dx = 0, dy = 0;
+    if (r.left < m) dx = m - r.left; else if (r.right > innerWidth - m) dx = innerWidth - m - r.right;
+    if (r.top < m) dy = m - r.top; else if (r.bottom > innerHeight - m) dy = innerHeight - m - r.bottom;
+    if (dx || dy) { this.layout[key] = [o[0] + dx, o[1] + dy]; this.applyLayout(); this.home(); }
+  }
+  private editStart(e: TouchEvent) {
+    for (const t of Array.from(e.changedTouches)) {
+      if (this.dragId !== null) continue;
+      const btn = (t.target as HTMLElement).closest?.('.tbtn') as HTMLElement | null, key = btn?.dataset.b ?? (t.clientX < innerWidth * 0.45 && t.clientY > innerHeight * 0.3 ? 'stick' : '');
+      if (!key || !TouchControls.MOVABLE.includes(key)) continue;
+      this.dragId = t.identifier; this.dragKey = key; this.dragFrom = [...(this.layout[key] ?? [0, 0])] as [number, number]; this.dragStart = [t.clientX, t.clientY];
+      (btn ?? this.base).classList.add('dragging');
+    }
+  }
+  private editMove(e: TouchEvent) {
+    for (const t of Array.from(e.changedTouches)) {
+      if (t.identifier !== this.dragId) continue;
+      this.layout[this.dragKey] = [Math.round(this.dragFrom[0] + t.clientX - this.dragStart[0]), Math.round(this.dragFrom[1] + t.clientY - this.dragStart[1])];
+      this.applyLayout(); this.home();
+      const el = this.dragKey === 'stick' ? this.base : this.el.querySelector<HTMLElement>(`.tbtn[data-b=${this.dragKey}]`); if (el) this.clamp(el, this.dragKey);
+    }
+  }
+  private editEnd(e: TouchEvent) {
+    for (const t of Array.from(e.changedTouches)) if (t.identifier === this.dragId) { this.dragId = null; this.save(); this.el.querySelectorAll('.dragging').forEach(x => x.classList.remove('dragging')); }
   }
 
   /** reflect the music play / pause state on the top button */
@@ -65,7 +110,8 @@ export class TouchControls {
   /** park the stick in the bottom-left corner (always visible) */
   private home() {
     this.base.classList.remove('active'); this.knob.style.transform = 'translate(-50%,-50%)';
-    this.base.style.left = 'calc(max(84px, 9vw + 40px) + env(safe-area-inset-left))'; this.base.style.top = 'calc(100% - clamp(78px, 27vh, 118px) - env(safe-area-inset-bottom))';
+    const o = this.layout.stick ?? [0, 0];
+    this.base.style.left = `calc(max(84px, 9vw + 40px) + env(safe-area-inset-left) + ${o[0]}px)`; this.base.style.top = `calc(100% - clamp(78px, 27vh, 118px) - env(safe-area-inset-bottom) + ${o[1]}px)`;
   }
 
   private start(e: TouchEvent) {

@@ -44,6 +44,9 @@
   #cross[data-w=rail] i{display:block;background:var(--c)}
   #cross[data-w=rail]{--l:7px;--t:1px;--g:7px}
   #cross[data-w=rail] b{width:3px;height:3px;left:-1.5px;top:-1.5px;background:#fff}
+  /* nailer: side ticks only, like a bracket */
+  #cross[data-w=nailer] i:nth-child(1),#cross[data-w=nailer] i:nth-child(2){display:none}
+  #cross[data-w=nailer]{--l:8px}
   /* phones: everything smaller */
   body.touch #cross{--l:6px;--t:2px;--r:22px}
   body.touch #cross[data-w=rocket] b{--r:24px} body.touch #cross[data-w=scatter] b{--r:34px} body.touch #cross[data-w=plasma] b{--r:15px} body.touch #cross[data-w=arc] b{--r:18px} body.touch #cross[data-w=blade] b{--r:26px}
@@ -290,6 +293,15 @@
   @media (max-height:380px){ body.touch #vitals{width:128px} body.touch #boosts{top:calc(var(--top) + 54px)} }
   #endscreen .box{max-height:calc(100dvh - 20px);overflow-y:auto;-webkit-overflow-scrolling:touch}
   body.touch #endscreen .box h2{font-size:clamp(22px,7vh,34px);margin:4px 0}
+  .tbtn[data-b=fire],.tbtn[data-b=jump],.tbtn[data-b=crouch],.tbtn[data-b=weap]{transform:translate(var(--dx,0px),var(--dy,0px))}
+  /* layout edit mode */
+  #touch.editing .tbtn,#touch.editing .tstick{outline:2px dashed #ffd27a;outline-offset:3px;opacity:1 !important;pointer-events:auto}
+  #touch.editing .tbtn.dragging,#touch.editing .tstick.dragging{outline-color:#fff;background:rgba(224,120,42,.45)}
+  #touch.editing .tpause,#touch.editing .tmusic,#touch.editing .tplay,#touch.editing .tchat,#touch.editing .tmic{opacity:.25 !important;pointer-events:none;outline:none}
+  #layoutbar{position:fixed;left:50%;top:calc(10px + env(safe-area-inset-top));transform:translateX(-50%);z-index:30;display:none;gap:10px;align-items:center;padding:8px 12px;background:rgba(10,6,4,.92);border:1px solid #e0782a;border-radius:14px;font:700 13px "Rajdhani",system-ui,sans-serif;color:#f3e3d0;letter-spacing:.1em}
+  #layoutbar.open{display:flex}
+  #layoutbar button{appearance:none;border:1px solid #e0782a88;background:#1a110c;color:#f3e3d0;border-radius:10px;height:36px;padding:0 14px;font:700 13px "Rajdhani",system-ui,sans-serif;letter-spacing:.14em}
+  #layoutbar button.go{background:linear-gradient(180deg,#f08a3a,#a84816);color:#140804}
 </style>
 </head>
 <body>

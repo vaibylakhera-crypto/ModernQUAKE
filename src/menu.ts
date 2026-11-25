@@ -23,6 +23,7 @@ export interface MenuHooks {
   fetchGames(): Promise<OpenGame[]>;
   settingsChanged(s: Settings): void;
   showGuide(): void;
+  editLayout(): void;
   gyro: {
     state(): { mode: GyroMode; sens: number; invertY: boolean; supported: boolean; seen: boolean };
     setMode(m: GyroMode): Promise<boolean>;
@@ -437,6 +438,7 @@ export class Menu {
       <div class="m-field"><label>BUTTON OPACITY · <span data-o="cta">${Math.round(s.cta * 100)}</span>%</label><input class="m-range" type="range" min="0.35" max="1" step="0.05" data-f="cta" value="${s.cta}"></div>
       <div class="m-field"><label>VIBRATION</label><div class="m-seg"><button data-a="vibe" data-v="1" class="${s.vibe ? 'on' : ''}">ON</button><button data-a="vibe" data-v="0" class="${!s.vibe ? 'on' : ''}">OFF</button></div><div class="m-note">A short buzz when you are hit or get a kill (Android).</div></div>
       ${this.gyroControls()}
+      <div class="m-col" style="margin-bottom:8px"><button class="m-btn small" data-a="layout">MOVE BUTTONS</button><div class="m-note">Drag the fire, jump, duck and swap buttons and the stick to where your thumbs like them.</div></div>
       <div class="m-col" style="margin-bottom:8px"><button class="m-btn small" data-a="guide">SHOW CONTROLS GUIDE</button></div>` : ''}
       <div class="m-h">VOICE</div>${this.voiceControls()}
       <div class="m-h">AUDIO</div>
@@ -514,6 +516,7 @@ export class Menu {
       case 'playlist': this.h.audio.openPlaylist(); break;
       case 'vibe': this.settings.vibe = v === '1'; save('mq-vibe', v); this.h.settingsChanged(this.settings); this.render(); break;
       case 'guide': this.h.showGuide(); break;
+      case 'layout': this.h.editLayout(); break;
       case 'gyro': this.h.gyro.setMode(v as GyroMode).then(ok => {
         this.gyroNote = ok ? '' : 'Motion access may be blocked. If aiming does not move, allow motion & orientation access for this site in your browser settings.';
         if (ok && v !== 'off') setTimeout(() => { if (!this.h.gyro.state().seen) { this.gyroNote = 'No gyroscope readings from this phone.'; if (this.screen === 'settings') this.render(); } }, 1500);
