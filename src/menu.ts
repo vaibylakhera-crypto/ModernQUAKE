@@ -36,7 +36,7 @@ export interface MenuHooks {
   audio: { musicVolume(): number; setMusicVolume(v: number): void; announcer(): boolean; setAnnouncer(v: boolean): void; openPlaylist(): void };
   chatChannel?: unknown;
 }
-export interface Settings { name: string; sens: number; vol: number; quality: 'low' | 'med' | 'high'; ctl: number; cta: number; vibe: boolean; assist: number; saver: boolean }
+export interface Settings { name: string; sens: number; vol: number; quality: 'low' | 'med' | 'high'; ctl: number; cta: number; vibe: boolean; assist: number; saver: boolean; radar: boolean }
 export interface LobbyView {
   mode: 'solo' | 'online';
   room: string; link: string; meId: number; hostId: number; isHost: boolean;
@@ -225,7 +225,7 @@ export class Menu {
     this.settings = {
       name: load('mq-name', ''), sens: Number(load('mq-sens', '1')) || 1, vol: Number(load('mq-vol', '0.7')),
       quality: load('mq-quality', 'low') as Settings['quality'],
-      ctl: Number(load('mq-ctl', '1')) || 1, cta: Number(load('mq-cta', '0.9')) || 0.9, vibe: load('mq-vibe', '1') !== '0', assist: Number(load('mq-assist', '1')), saver: load('mq-saver', '0') === '1',
+      ctl: Number(load('mq-ctl', '1')) || 1, cta: Number(load('mq-cta', '0.9')) || 0.9, vibe: load('mq-vibe', '1') !== '0', assist: Number(load('mq-assist', '1')), saver: load('mq-saver', '0') === '1', radar: load('mq-radar', '1') !== '0',
     };
     try { this.draft = { ...DEFAULT_CFG, ...JSON.parse(load('mq-cfg', '{}')) }; } catch { this.draft = { ...DEFAULT_CFG }; }
     if (!MAPS[this.draft.map]) this.draft.map = DEFAULT_CFG.map;
@@ -443,6 +443,8 @@ export class Menu {
       <div class="m-col" style="margin-bottom:8px"><button class="m-btn small" data-a="layout">MOVE BUTTONS</button><div class="m-note">Drag the fire, jump, duck and swap buttons and the stick to where your thumbs like them.</div></div>
       <div class="m-col" style="margin-bottom:8px"><button class="m-btn small" data-a="guide">SHOW CONTROLS GUIDE</button></div>` : ''}
       <div class="m-h">VOICE</div>${this.voiceControls()}
+      <div class="m-h">DISPLAY</div>
+      <div class="m-field"><label>MINI-MAP</label><div class="m-seg"><button data-a="radar" data-v="1" class="${s.radar ? 'on' : ''}">ON</button><button data-a="radar" data-v="0" class="${!s.radar ? 'on' : ''}">OFF</button></div><div class="m-note">A small radar: the map, power-ups, gates, teammates and nearby enemies.</div></div>
       <div class="m-h">AUDIO</div>
       <div class="m-field"><label>EFFECTS VOLUME · <span data-o="vol">${Math.round(s.vol * 100)}</span>%</label><input class="m-range" type="range" min="0" max="1" step="0.05" data-f="vol" value="${s.vol}"></div>
       <div class="m-field"><label>MUSIC VOLUME · <span data-o="mvol">${Math.round(this.h.audio.musicVolume() * 100)}</span>%</label><input class="m-range" type="range" min="0" max="1" step="0.05" data-f="mvol" value="${this.h.audio.musicVolume()}"></div>
@@ -518,6 +520,7 @@ export class Menu {
       case 'playlist': this.h.audio.openPlaylist(); break;
       case 'vibe': this.settings.vibe = v === '1'; save('mq-vibe', v); this.h.settingsChanged(this.settings); this.render(); break;
       case 'assist': this.settings.assist = Number(v); save('mq-assist', v); this.h.settingsChanged(this.settings); this.render(); break;
+      case 'radar': this.settings.radar = v === '1'; save('mq-radar', v); this.h.settingsChanged(this.settings); this.render(); break;
       case 'saver': this.settings.saver = v === '1'; save('mq-saver', v); this.h.settingsChanged(this.settings); this.render(); break;
       case 'guide': this.h.showGuide(); break;
       case 'layout': this.h.editLayout(); break;

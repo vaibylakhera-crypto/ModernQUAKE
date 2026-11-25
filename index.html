@@ -302,6 +302,11 @@
   #layoutbar.open{display:flex}
   #layoutbar button{appearance:none;border:1px solid #e0782a88;background:#1a110c;color:#f3e3d0;border-radius:10px;height:36px;padding:0 14px;font:700 13px "Rajdhani",system-ui,sans-serif;letter-spacing:.14em}
   #layoutbar button.go{background:linear-gradient(180deg,#f08a3a,#a84816);color:#140804}
+  /* mini-map */
+  #radar{position:fixed;left:calc(18px + env(safe-area-inset-left));top:18px;width:132px;height:132px;border-radius:50%;z-index:4;pointer-events:none;box-shadow:0 0 18px rgba(0,0,0,.6);display:none}
+  body.touch #radar{width:clamp(72px,24vh,92px);height:clamp(72px,24vh,92px);left:calc(10px + env(safe-area-inset-left));top:calc(var(--top) + clamp(58px,17vh,72px))}
+  body.touch.radar #boosts{top:calc(var(--top) + clamp(58px,17vh,72px) + clamp(72px,24vh,92px) + 8px)}
+  body.radar:not(.touch) #boosts{top:170px}
 </style>
 </head>
 <body>

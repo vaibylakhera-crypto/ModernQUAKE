@@ -8,10 +8,11 @@ import { World } from './world';
 import { Arena } from './arena';
 import { updateFireLights, setFireQuality } from './torches';
 import { buildEmbers } from './props';
+import { Radar } from './radar';
 import { kitOptions } from './kit';
 import { getQuality } from './quality';
 import { Player, PM, Input } from './player';
-import { torches as levelTorches, boxes, MAP_ID, BoosterId, THEME, pads as levelPads, teleporters as levelTeleporters, pickups as levelPickups, spawns as levelSpawns } from './level';
+import { flags as levelFlags, torches as levelTorches, boxes, MAP_ID, BoosterId, THEME, pads as levelPads, teleporters as levelTeleporters, pickups as levelPickups, spawns as levelSpawns } from './level';
 import { BOOSTERS } from './pickups';
 import { Viewmodel } from './viewmodel';
 import { Loadout } from './loadout';
@@ -182,6 +183,7 @@ let yaw = 0, pitch = 0;
 const startEl = document.getElementById('start')!;
 const TOUCH = touchDevice || new URLSearchParams(location.search).has('touch');
 setFireQuality(0, TOUCH);
+const radar = new Radar(document.body); let radarT = 0;
 const embers = buildEmbers(TOUCH ? 70 : 140); scene.add(embers.points);
 if (new URLSearchParams(location.search).has('fps')) document.body.classList.add('fps');
 let touchPlaying = false;
@@ -207,6 +209,17 @@ function aimAssist(dt: number) {
   if (!best) return;
   assistFriction = lvl === 2 ? 0.45 : 0.62;                       // thumb drags move the crosshair less while it is on a target
   if (firing()) { const pull = Math.min(1, dt * (lvl === 2 ? 7 : 3.5)); yaw += ey * pull; pitch = Math.max(-Math.PI / 2 + 0.01, Math.min(Math.PI / 2 - 0.01, pitch + ep * pull)); }
+}
+// ---- mini-map data ----
+let radarShown = false;
+function radarFrame() {
+  const mt = myTeam(), items: any[] = [], friends: any[] = [], enemies: any[] = [], flagDots: any[] = [];
+  for (const it of pickupSys.items) if (it.active && it.def.kind === 'booster') items.push({ x: it.def.pos[0], y: it.def.pos[1], z: it.def.pos[2], color: '#' + it.color.toString(16).padStart(6, '0'), r: 3.8 });
+  const add = (pos: THREE.Vector3, team: number, alive: boolean) => { if (!alive) return; const d = { x: pos.x, y: pos.y, z: pos.z, color: '' }; if (mt && team === mt) { d.color = '#5dff8a'; friends.push(d); } else { d.color = '#ff4a3a'; enemies.push(d); } };
+  for (const b of bots) add(b.pos, b.team, b.alive);
+  for (const r of remotes.values()) add(r.pos, r.team, r.alive);
+  if (cfg.mode === 'ctf' && levelFlags) for (const [k, team] of [['red', 1], ['blue', 2]] as const) { const f = levelFlags[k]; flagDots.push({ x: f[0], y: f[1], z: f[2], color: team === 1 ? '#ff5a48' : '#4f8dff' }); }
+  return { x: player.x, y: player.y, z: player.z, yaw, items, friends, enemies, flags: flagDots };
 }
 // ---- battery saver: fewer pixels, no real firelight or sparks ----
 let saverOn = false;
@@ -1095,6 +1108,11 @@ function frame(now: number) {
   if (frozen) acc = 0;
   if (!frozen) aimAssist(Math.min(0.05, frameMs / 1000));
   applySaver(menu.settings.saver);
+  { // mini-map: redrawn ten times a second
+    const on = menu.settings.radar && mode !== 'title' && !frozen;
+    if (on !== radarShown) { radarShown = on; radar.show(on); document.body.classList.toggle('radar', on); }
+    radarT -= frameMs; if (on && radarT <= 0) { radarT = 100; radar.update(radarFrame()); }
+  }
   while (acc >= DT) {
     const input: Input = {
       forward: deadT > 0 ? 0 : Math.max(-1, Math.min(1, (keys.has('KeyW') ? 1 : 0) - (keys.has('KeyS') ? 1 : 0) + (touch?.forward ?? 0))),
