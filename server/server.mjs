@@ -56,8 +56,8 @@ const server = http.createServer((req, res) => {
 //  team ids: 0 = none (free-for-all), 1 = RED, 2 = BLUE
 const rooms = new Map();
 let nextId = 1, nextBot = 1000;
-const MAPS = new Set(['boreal', 'void', 'spire', 'bastion', 'foundry', 'crypt', 'ring', 'tower', 'canyon']);
-const CTF_MAPS = new Set(['spire', 'bastion', 'foundry', 'crypt', 'ring', 'tower', 'canyon']);     // maps that have flag bases
+const MAPS = new Set(['boreal', 'void', 'spire', 'bastion', 'foundry', 'crypt', 'ring', 'tower', 'canyon', 'inferno', 'skywell', 'citadel']);
+const CTF_MAPS = new Set(['spire', 'bastion', 'foundry', 'crypt', 'ring', 'tower', 'canyon', 'inferno', 'citadel']);     // maps that have flag bases
 const MODES = new Set(['ffa', 'tdm', 'ctf', 'insta', 'lms', 'koth']);
 const LIVES = 3, KOTH_PER_STEP = 4;       // last man standing lives; king-of-the-hill points per frag-limit step (1 point = 1 second held)
 const BOT_POOL = [

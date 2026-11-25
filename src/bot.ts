@@ -3,7 +3,7 @@ import { buildFighter, Dressed } from './dress';
 import { animate, holdWeapon, AnimState } from './anim';
 import { Target, rayWorld } from './combat';
 import { WeaponId } from './weapons';
-import { pickups, pads, teleporters, spawns, liftBoxes, BOUNCE_VY, GRAVITY, jumpPadVelocity, inGate, PickupDef } from './level';
+import { lifts, hazards, pickups, pads, teleporters, spawns, liftBoxes, BOUNCE_VY, GRAVITY, jumpPadVelocity, inGate, PickupDef } from './level';
 import { buildNav, nodes, itemNode, nearestNode, dijkstra, pathTo, groundAt, blockedAt } from './nav';
 import { TEAMS } from './teams';
 
@@ -102,7 +102,7 @@ export class Bot implements Target {
   get weaponId() { return this.weapon; }
   get healthPct() { return Math.max(0, this.health); }
   /** rider adapter so the lift system can carry a bot standing on a lift */
-  get rider() { const b = this; return { get x() { return b.pos.x; }, get z() { return b.pos.z; }, get y() { return b.pos.y; }, set y(v: number) { b.pos.y = v; }, get vy() { return b.vy; }, set vy(v: number) { b.vy = v; } }; }
+  get rider() { const b = this; return { get x() { return b.pos.x; }, set x(v: number) { b.pos.x = v; }, get z() { return b.pos.z; }, set z(v: number) { b.pos.z = v; }, get y() { return b.pos.y; }, set y(v: number) { b.pos.y = v; }, get vy() { return b.vy; }, set vy(v: number) { b.vy = v; } }; }
 
   /** spawn at a random floor point near one of the map's spawn points, preferring the one farthest from `far` */
   respawn(far?: THREE.Vector3) {
@@ -287,6 +287,9 @@ export class Bot implements Target {
       this.vel.set(-Math.sin(t.yaw) * sp, 0, -Math.cos(t.yaw) * sp); this.grounded = false; this.vy = 0; this.tpCool = 0.8; this.path = []; this.brainT = 0.2; break;
     }
     if (this.pos.y < -45) { this.respawn(P.pos); return; }
+    // hazards: lava burns, a crusher crushes
+    for (const h of hazards) if (this.pos.x > h.x0 && this.pos.x < h.x1 && this.pos.z > h.z0 && this.pos.z < h.z1 && this.pos.y < h.y + 0.3) { this.hit(999, this.pos, new THREE.Vector3(), 'lava', '', ''); return; }
+    for (let i = 0; i < lifts.length; i++) if (lifts[i].crush) { const b = liftBoxes[i]; if (this.pos.x + 0.3 > b.min[0] && this.pos.x - 0.3 < b.max[0] && this.pos.z + 0.3 > b.min[2] && this.pos.z - 0.3 < b.max[2] && this.pos.y + 1.7 > b.min[1] + 0.01 && this.pos.y < b.max[1] - 0.01) { this.hit(999, this.pos, new THREE.Vector3(), 'crush', '', ''); return; } }
     // stuck against a wall? pick a new route (and hop)
     this.stuckT += dt;
     if (this.stuckT > 1.4) {

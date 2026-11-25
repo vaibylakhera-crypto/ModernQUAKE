@@ -1,6 +1,6 @@
 // Map dressing: team banners at the flag bases, glowing rings turning around the big pickups, and drifting embers in the air.
 import * as THREE from 'three';
-import { flags, pickups, THEME, MAP_ID } from './level';
+import { flags, pickups, THEME, MAP_ID, hazards } from './level';
 import { BOOSTERS } from './pickups';
 
 export const propTime = { value: 0 };
@@ -25,6 +25,21 @@ void main(){
   gl_FragColor = vec4(c, 1.0);
 }`;
 const ironMat = new THREE.MeshLambertMaterial({ color: 0x2c2826 });
+// lava: a flowing, glowing pool
+const lavaVert = /* glsl */ `varying vec2 vP; void main(){ vP = position.xz; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`;
+const lavaFrag = /* glsl */ `
+precision mediump float;
+uniform float uTime; varying vec2 vP;
+float h(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float n(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f); return mix(mix(h(i), h(i + vec2(1.0, 0.0)), f.x), mix(h(i + vec2(0.0, 1.0)), h(i + vec2(1.0, 1.0)), f.x), f.y); }
+void main(){
+  vec2 p = vP * 0.35; float t = uTime * 0.25;
+  float a = n(p * 1.3 + vec2(t, t * 0.6)) * 0.6 + n(p * 2.9 - vec2(t * 0.8, t)) * 0.4;
+  float crust = smoothstep(0.42, 0.62, a);                                   // dark cooling crust over bright flowing veins
+  vec3 hot = mix(vec3(1.0, 0.35, 0.05), vec3(1.0, 0.85, 0.3), smoothstep(0.2, 0.0, a));
+  vec3 c = mix(hot * 1.6, vec3(0.18, 0.04, 0.02), crust);
+  gl_FragColor = vec4(c, 1.0);
+}`;
 
 export function buildProps(): { group: THREE.Group; spin: THREE.Object3D[] } {
   const group = new THREE.Group(), spin: THREE.Object3D[] = [];
@@ -44,6 +59,10 @@ export function buildProps(): { group: THREE.Group; spin: THREE.Object3D[] } {
       const ring = new THREE.Mesh(new THREE.TorusGeometry(1.05 - i * 0.18, 0.035, 6, 48), new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false }));
       holder.add(ring); group.add(holder); spin.push(ring);
     }
+  }
+  for (const h of hazards) {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(h.x1 - h.x0, h.z1 - h.z0).rotateX(-Math.PI / 2), new THREE.ShaderMaterial({ vertexShader: lavaVert, fragmentShader: lavaFrag, uniforms: { uTime: propTime } }));
+    m.position.set((h.x0 + h.x1) / 2, h.y, (h.z0 + h.z1) / 2); group.add(m);
   }
   // Foundry: pairs of big interlocking gears turning slowly on the north and south walls
   if (MAP_ID === 'foundry') {

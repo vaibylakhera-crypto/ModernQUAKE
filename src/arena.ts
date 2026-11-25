@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { boxes, pads, Box, teleporters, THEME, lifts, liftBoxes } from './level';
+import { boxes, pads, Box, teleporters, THEME, lifts, liftBoxes, CRUSH_H } from './level';
 import { liftMoving } from './lifts';
 import { Quality } from './quality';
 import { buildPad, padTime, buildTeleporter, teleTime } from './pads';
@@ -144,7 +144,7 @@ export class Arena {
       else this.platform(b, i);
     });
     const mat = (part: Part): THREE.Material => {
-      if (part === 'lamp') return new THREE.MeshBasicMaterial({ color: THEME.lamp });
+      if (part === 'lamp') return (this.lampMat = new THREE.MeshBasicMaterial({ color: THEME.lamp }));
       const o = { map: tex(part), vertexColors: true };
       if (part === 'floor') {
         // deck plates: normal map for real relief under the lights, specular map so worn metal glints and grime stays dull
@@ -217,18 +217,23 @@ export class Arena {
   }
 
   /** moving lift platforms: dark slab, glowing frame (brighter while moving), marker where it lands */
+  /** the wall / ceiling lamp strips (dimmed during a blackout) */
+  lampMat: THREE.MeshBasicMaterial | null = null;
   private liftMeshes: { g: THREE.Group; edge: THREE.MeshBasicMaterial }[] = [];
   private buildLifts() {
     lifts.forEach(l => {
-      const w = l.x1 - l.x0, d = l.z1 - l.z0, g = new THREE.Group();
-      const slab = new THREE.Mesh(new THREE.BoxGeometry(w, 0.5, d), new THREE.MeshLambertMaterial({ color: 0x2c313a })); slab.position.y = -0.27;
+      const w = l.x1 - l.x0, d = l.z1 - l.z0, g = new THREE.Group(), H = l.crush ? CRUSH_H : 0.5;
+      const slab = new THREE.Mesh(new THREE.BoxGeometry(w, H, d), new THREE.MeshLambertMaterial({ color: l.crush ? 0x3a2622 : 0x2c313a })); slab.position.y = -H / 2 - 0.02;
       const plate = new THREE.Mesh(new THREE.BoxGeometry(w - 0.35, 0.05, d - 0.35), new THREE.MeshLambertMaterial({ color: 0x555d6a })); plate.position.y = -0.03;
       const edgeMat = new THREE.MeshBasicMaterial({ color: THEME.lamp });
       const edge = new THREE.Mesh(new THREE.BoxGeometry(w + 0.08, 0.07, d + 0.08), edgeMat); edge.position.y = -0.08;
-      g.add(slab, edge, plate); g.position.set((l.x0 + l.x1) / 2, l.y0, (l.z0 + l.z1) / 2);
+      g.add(slab, edge, plate);
+      if (l.crush) { const teeth = new THREE.Mesh(new THREE.BoxGeometry(w - 0.2, 0.12, d - 0.2), new THREE.MeshBasicMaterial({ color: 0xff5a2a })); teeth.position.y = -H + 0.02; g.add(teeth); plate.visible = false; }
+      g.position.set((l.x0 + l.x1) / 2, l.y0, (l.z0 + l.z1) / 2);
       this.group.add(g); this.liftMeshes.push({ g, edge: edgeMat });
       const mark = new THREE.Mesh(new THREE.PlaneGeometry(w, d).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: THEME.lamp, transparent: true, opacity: 0.16, depthWrite: false }));
-      mark.position.set((l.x0 + l.x1) / 2, l.y0 + 0.03, (l.z0 + l.z1) / 2); this.group.add(mark);
+      if (l.crush) (mark.material as THREE.MeshBasicMaterial).color.set(0xff3a2a);
+      mark.position.set((l.x0 + l.x1) / 2, (l.crush ? l.y1 - CRUSH_H : l.y0) + 0.03, (l.z0 + l.z1) / 2); this.group.add(mark);
     });
   }
 
@@ -246,6 +251,6 @@ export class Arena {
 
   /** tSec: the shared (server) clock the lifts run on */
   update(t: number, tSec = Date.now() / 1000) {
-    this.liftMeshes.forEach((m, i) => { m.g.position.y = liftBoxes[i].max[1]; m.edge.color.set(liftMoving(lifts[i], tSec) ? 0xffffff : THEME.lamp); });
+    this.liftMeshes.forEach((m, i) => { const bx = liftBoxes[i]; m.g.position.set((bx.min[0] + bx.max[0]) / 2, bx.max[1], (bx.min[2] + bx.max[2]) / 2); m.edge.color.set(liftMoving(lifts[i], tSec) ? 0xffffff : THEME.lamp); });
     padTime.value = t; teleTime.value = t; torchTime.value = t; propTime.value = t; this.rings.forEach((o, i) => { o.rotation.z = t * (o.userData.speed ?? (i % 2 ? -0.9 : 0.7)); }); this.spin.forEach((o, i) => { o.rotation.z = t * (i % 2 ? -1.4 : 1.1); o.position.y += Math.sin(t * 2 + i) * 0.002; }); }
 }

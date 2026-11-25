@@ -1,5 +1,5 @@
 // Quake-style player movement. Deterministic fixed-step, no three.js dependency (shareable with the server).
-import { Box, GRAVITY, BOUNCE_VY, pads, jumpPadVelocity, spawns, teleporters, inGate } from './level';
+import { Box, GRAVITY, BOUNCE_VY, pads, jumpPadVelocity, spawns, teleporters, inGate, lifts, liftBoxes, hazards } from './level';
 
 export const PM = {
   runSpeed: 10,        // m/s  (~320 u/s)
@@ -36,6 +36,8 @@ export class Player {
   spawnIdx = 0;
   health = 100; armor = 0;
   onVoid?: () => void;
+  /** killed by a crusher / by lava (the game handles the death) */
+  onCrush?: () => void; onLava?: () => void;
   hurtT = 0;
   /** booster multipliers (HASTE / HIGH JUMP), set by the game each frame */
   speedMul = 1; jumpMul = 1;
@@ -98,6 +100,9 @@ export class Player {
 
   step(inp: Input, dt: number) {
     this.yaw = inp.yaw;
+    // a crusher that is on top of us kills (before anything pushes us out of it)
+    if (this.health > 0) for (let i = 0; i < lifts.length; i++) if (lifts[i].crush) { const b = liftBoxes[i];
+      if (this.x + PM.hw > b.min[0] + 0.05 && this.x - PM.hw < b.max[0] - 0.05 && this.z + PM.hw > b.min[2] + 0.05 && this.z - PM.hw < b.max[2] - 0.05 && this.y + this.height > b.min[1] + 0.01 && this.y < b.max[1] - 0.01) { this.onCrush?.(); break; } }
     if (inp.jumpPressed) this.jumpBuf = PM.jumpBuffer;
     else this.jumpBuf = Math.max(0, this.jumpBuf - dt);
 
@@ -146,6 +151,7 @@ export class Player {
     this.wasGrounded = this.grounded;
     this.checkPads(dt);
     this.checkTeleporters(dt);
+    for (const h of hazards) if (this.health > 0 && this.x > h.x0 && this.x < h.x1 && this.z > h.z0 && this.z < h.z1 && this.y < h.y + 0.3) { this.onLava?.(); break; }
     if (this.y < PM.voidY) { if (this.onVoid) this.onVoid(); else this.respawn(); }
   }
 

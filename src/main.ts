@@ -15,7 +15,7 @@ import { botAdapt } from './bot';
 import { kitOptions } from './kit';
 import { getQuality } from './quality';
 import { Player, PM, Input } from './player';
-import { hill as levelHill, flags as levelFlags, torches as levelTorches, boxes, MAP_ID, BoosterId, THEME, pads as levelPads, teleporters as levelTeleporters, pickups as levelPickups, spawns as levelSpawns } from './level';
+import { blackout as levelBlackout, hill as levelHill, flags as levelFlags, torches as levelTorches, boxes, MAP_ID, BoosterId, THEME, pads as levelPads, teleporters as levelTeleporters, pickups as levelPickups, spawns as levelSpawns } from './level';
 import { BOOSTERS } from './pickups';
 import { Viewmodel } from './viewmodel';
 import { Loadout } from './loadout';
@@ -105,6 +105,7 @@ const surround = buildSurround(); if (MAP === 'boreal' && !PLAIN_SKY) scene.add(
 const world = STYLE === 'kit' ? new World(Q) : new Arena(Q);
 scene.add(world.group);
 world.build();
+const sceneLights: { l: THREE.Light; base: number }[] = [];
 
 // lighting: aurora-tinted fill + planet key light (cheap: 1 hemisphere + 2 directional, no shadows)
 if (STYLE === 'kit') {
@@ -118,6 +119,8 @@ if (STYLE === 'kit') {
 const key = new THREE.DirectionalLight(STYLE === 'kit' ? 0xffe2c0 : THEME.key, Q.pbr ? 3.2 : 2.4);
 key.position.copy(sky.sunDir).multiplyScalar(100); scene.add(key);
 const rim = new THREE.DirectionalLight(STYLE === 'kit' ? 0x7a8cff : THEME.rim, Q.pbr ? 1.6 : 1.0); rim.position.set(-40, 20, 60); scene.add(rim);
+
+for (const o of scene.children) if ((o as any).isLight) sceneLights.push({ l: o as THREE.Light, base: (o as THREE.Light).intensity });
 
 let composer: EffectComposer | null = null;
 // ---- safety nets for phone GPUs ----
@@ -385,7 +388,7 @@ let lastWeapon = ''; const crossEl = document.getElementById('cross')!; let cros
 const music = new Music();
 music.light = TOUCH;
 { // each map plays the battle score in its own key and tempo
-  const T: Record<string, [number, number]> = { boreal: [0, 1], void: [-2, 0.92], spire: [3, 1.04], bastion: [-4, 0.96], foundry: [2, 1.08], crypt: [-5, 0.9], ring: [5, 1.05], tower: [-1, 1], canyon: [1, 0.98] };
+  const T: Record<string, [number, number]> = { boreal: [0, 1], void: [-2, 0.92], spire: [3, 1.04], bastion: [-4, 0.96], foundry: [2, 1.08], crypt: [-5, 0.9], ring: [5, 1.05], tower: [-1, 1], canyon: [1, 0.98], inferno: [4, 1.1], skywell: [-3, 1.02], citadel: [3, 1] };
   const t = T[MAP_ID]; if (t) music.theme = { transpose: t[0], bpmMul: t[1] };
 }                 // phones get a lighter battle score
 const announcer = new Announcer(document.getElementById('announce')!);
@@ -985,7 +988,7 @@ function die(why: string) {
     if (mode === 'solo') soloKill(by === 'SELF' || !by ? '' : by, 'me');
   }
   killer.who = ''; sfx.died(); announcer.died(); refreshFrags();
-  say(why === 'EXPLODED' ? 'YOU BLEW UP' : why === 'FELL' ? 'YOU FELL' : 'YOU DIED');
+  say(why === 'EXPLODED' ? 'YOU BLEW UP' : why === 'FELL' ? 'YOU FELL' : why === 'BURNED' ? 'YOU BURNED' : why === 'CRUSHED' ? 'YOU WERE CRUSHED' : 'YOU DIED');
   if (why === 'FELL') { respawnNow(); checkMyElimination(); return; }
   // death cam: the view sinks to the floor and turns to the one who got you; a moment later you are back
   player.health = 0; player.armor = 0; deadT = DEAD_TIME; deadFor = 0; vm.setVisible(false); clearBoosters();
@@ -998,6 +1001,19 @@ function respawnNow() {
   endDeath(); player.respawn(enemyXZ()); yaw = player.yaw; pitch = 0; loadout.reset(); vm.show(loadout.best()); lastBar = ''; clearBoosters(); sfx.spawn();
 }
 player.onVoid = () => die('FELL');
+player.onLava = () => die('BURNED');
+player.onCrush = () => die('CRUSHED');
+/** blackout: on some maps the lights go out together every so often (same moment for everyone: it runs on the shared clock) */
+let darkNow = false;
+function blackoutTick(tSec: number) {
+  if (!levelBlackout) return;
+  const ph = ((tSec % 45) + 45) % 45, flick = (x: number) => { const v = Math.sin(Math.floor(x * 9) * 12.9898) * 43758.5453; return v - Math.floor(v) > 0.45 ? 1 : 0.1; };
+  const f = ph < 34 ? 1 : ph < 35.3 ? flick(ph) : ph < 40.5 ? 0.07 : ph < 42 ? flick(ph + 3) : 1;
+  const dark = ph >= 34 && ph < 41.5;
+  if (dark !== darkNow) { darkNow = dark; if (matchState === 'playing') announcer.say(dark ? 'LIGHTS OUT' : 'POWER RESTORED', '', 2); }
+  for (const s of sceneLights) s.l.intensity = s.base * (0.04 + 0.96 * f);
+  const lm = (world as any).lampMat as THREE.MeshBasicMaterial | null; if (lm) lm.color.set(THEME.lamp).multiplyScalar(0.05 + 0.95 * f);
+}
 
 // ---- hit feedback: hit marker, damage numbers, kill feed ----
 const killer = { who: '', weapon: 'pistol' as WeaponId, at: 0 };
@@ -1267,6 +1283,7 @@ function frame(now: number) {
   stars.update(camera, renderer.getPixelRatio());
   if (!Q.liveSky || PLAIN_SKY) { const a = now / 1000 * 0.004; scene.backgroundRotation.y = a; stars.mesh.rotation.y = a; }
   if (Q.liveSky && !PLAIN_SKY) sky.update(now / 1000, camera);
+  blackoutTick((Date.now() + timeOffset) / 1000);
   world.update(now / 1000, (Date.now() + timeOffset) / 1000); surround.update(now / 1000);
   updateFireLights(camera.position, now / 1000, Math.min(0.05, frameMs / 1000)); embers.update(camera.position, now / 1000);
   hud();
@@ -1279,4 +1296,4 @@ function frame(now: number) {
 requestAnimationFrame(frame);
 
 // dev/test hook
-(window as any).__game = { bots, net, remotes, menu, stars, scene, sfx, Music, music, announcer, feed, riders, nav: navMod, voice, get ts() { return ts; }, myTeam, flagSt: () => flagSt, teamOfOwner, soloKill, grantBooster, boost, liftSys, lifts: __lifts, level: { torches: levelTorches, pads: levelPads, teleporters: levelTeleporters, boxes, pickups: levelPickups, spawns: levelSpawns }, get mode() { return mode; }, get matchState() { return matchState; }, scores: () => board(), doFire, player, camera, vm, loadout, combat, pickupSys, targets, say, die, renderer, world, Q, get scale() { return renderScale; }, setLook: (y: number, p: number) => { yaw = y; pitch = p; }, PM, fx: (lvl: number) => setFireQuality(lvl, TOUCH), modeDbg: { get eliminated() { return eliminated; }, get hillText() { return hillText; }, get cfg() { return cfg; }, get deadT() { return deadT; }, score }, assistTest: { get yaw() { return yaw; }, get pitch() { return pitch; }, get friction() { return assistFriction; }, setFire: (v: boolean) => { mouseDown = v; }, step: (dt: number) => aimAssist(dt) } };
+(window as any).__game = { bots, net, remotes, menu, stars, scene, sfx, Music, music, announcer, feed, riders, nav: navMod, voice, get ts() { return ts; }, myTeam, flagSt: () => flagSt, teamOfOwner, soloKill, grantBooster, boost, liftSys, lifts: __lifts, level: { torches: levelTorches, pads: levelPads, teleporters: levelTeleporters, boxes, pickups: levelPickups, spawns: levelSpawns }, get mode() { return mode; }, get matchState() { return matchState; }, scores: () => board(), doFire, player, camera, vm, loadout, combat, pickupSys, targets, say, die, renderer, world, Q, get scale() { return renderScale; }, setLook: (y: number, p: number) => { yaw = y; pitch = p; }, PM, fx: (lvl: number) => setFireQuality(lvl, TOUCH), modeDbg: { blackoutAt: (t: number) => { blackoutTick(t); return sceneLights.map(x => +(x.l.intensity / x.base).toFixed(2)); }, get eliminated() { return eliminated; }, get hillText() { return hillText; }, get cfg() { return cfg; }, get deadT() { return deadT; }, score }, assistTest: { get yaw() { return yaw; }, get pitch() { return pitch; }, get friction() { return assistFriction; }, setFire: (v: boolean) => { mouseDown = v; }, step: (dt: number) => aimAssist(dt) } };

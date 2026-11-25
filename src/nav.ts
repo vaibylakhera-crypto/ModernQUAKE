@@ -62,6 +62,7 @@ export function buildNav() {
     for (let i = 0; i <= nx; i++) for (let j = 0; j <= nz; j++) {
       const x = b.min[0] + 0.9 + (w - 1.8) * (nx ? i / nx : 0.5), z = b.min[2] + 0.9 + (d - 1.8) * (nz ? j / nz : 0.5);
       if (Math.abs(groundAt(x, z, top + 0.05) - top) > 0.05 || blockedAt(x, top, z, 0.45)) continue;
+      if (lifts.some(l => l.crush && x > l.x0 - 1.6 && x < l.x1 + 1.6 && z > l.z0 - 1.6 && z < l.z1 + 1.6)) continue;           // keep bots out from under crushers
       if (bounce.some(p => Math.hypot(p.pos[0] - x, p.pos[2] - z) < 2.6 && Math.abs(p.pos[1] - top) < 0.5)) continue;     // don't route over bounce pads
       if (nodes.some(n => n.kind === 'floor' && Math.abs(n.y - top) < 0.05 && Math.hypot(n.x - x, n.z - z) < 1.2)) continue;
       addNode({ x, y: top, z, kind: 'floor' });
@@ -99,6 +100,7 @@ export function buildNav() {
   });
   // ---- lifts: a node at each end, linked to the floors they connect
   lifts.forEach((l, li) => {
+    if (l.crush || l.dx || l.dz) return;                              // drifting platforms and crushers are not routes
     const cx = (l.x0 + l.x1) / 2, cz = (l.z0 + l.z1) / 2;
     const lo = addNode({ x: cx, y: l.y0, z: cz, kind: 'lift', lift: li, up: false }), hi = addNode({ x: cx, y: l.y1, z: cz, kind: 'lift', lift: li, up: true });
     link(lo, hi, 'lift', 9); link(hi, lo, 'lift', 9);

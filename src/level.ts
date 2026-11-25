@@ -14,7 +14,13 @@ export type Gate = Teleporter & { face: number };
  * A lift: a platform that glides between two heights on a fixed clock (so every player sees the same lift).
  * It waits `wait` seconds at each end and takes `travel` seconds to move. y0/y1 are the heights of its top surface.
  */
-export interface Lift { x0: number; x1: number; z0: number; z1: number; y0: number; y1: number; wait: number; travel: number; phase: number }
+export interface Lift { x0: number; x1: number; z0: number; z1: number; y0: number; y1: number; wait: number; travel: number; phase: number;
+  /** a drifting platform: it slides this far in x / z (same wait + travel clock) instead of rising */
+  dx?: number; dz?: number;
+  /** a crusher: y0 = raised (its top), y1 = lowered; it slams down fast and kills anything under it */
+  crush?: boolean }
+/** things that kill: lava is a glowing pool at height y; falling into it burns you */
+export interface Hazard { kind: 'lava'; x0: number; x1: number; z0: number; z1: number; y: number }
 /** an area bots roam in (one flat floor) */
 export interface BotZone { x0: number; x1: number; z0: number; z1: number; y: number }
 
@@ -36,6 +42,9 @@ export interface MapDef {
   boxes: Box[]; pads: Pad[]; spawns: { pos: [number, number, number]; yaw: number }[];
   pickups: PickupDef[]; teleporters: Teleporter[]; botZones: BotZone[];
   lifts?: Lift[];
+  hazards?: Hazard[];
+  /** the lights go out for a few seconds every so often (only fire lights the room) */
+  blackout?: boolean;
   /** capture-the-flag bases (maps without them only offer deathmatch modes) */
   flags?: { red: [number, number, number]; blue: [number, number, number] };
 }
@@ -63,6 +72,11 @@ function light(x0: number, z0: number, x1: number, z1: number, y: number): Box {
   return { min: [x0, y - 0.15, z0], max: [x1, y, z1], kind: 'light' };
 }
 const lift = (x0: number, z0: number, x1: number, z1: number, y0: number, y1: number, phase = 0, wait = 2.5, travel = 1.8): Lift => ({ x0, x1, z0, z1, y0, y1, wait, travel, phase });
+export const CRUSH_H = 2.5;
+/** a platform that slides (dx, dz) and back: drifting bridges and platforms */
+const slide = (x0: number, z0: number, x1: number, z1: number, y: number, dx: number, dz: number, phase = 0, wait = 2.5, travel = 4): Lift => ({ x0, x1, z0, z1, y0: y, y1: y, wait, travel, phase, dx, dz });
+/** a crusher: a heavy block hanging at `up` (its top), slamming down so its underside meets the floor at `down` - 2.5 */
+const press = (x0: number, z0: number, x1: number, z1: number, up: number, down: number, phase = 0, wait = 3): Lift => ({ x0, x1, z0, z1, y0: up, y1: down, wait, travel: 0.35, phase, crush: true });
 const W = Math.PI / 2;   // yaw helpers: facing +X = -W, facing -X = +W, facing +Z = PI, facing -Z = 0
 
 // ───────────── IRON CRADLE / DEEP VOID (the original arena; no teleporters or boosters) ─────────────
@@ -401,16 +415,135 @@ const CANYON: Omit<MapDef, 'id' | 'name' | 'desc'> = {
   botZones: [{ x0: -40, x1: 40, z0: -16, z1: 16, y: 0 }],
 };
 
+// ───────────── INFERNO ─────────────
+// A tight ring of walkways around a lava pit (fall in and you burn), a narrow catwalk across the middle, and four raised corner towers.
+// Two crushers guard the health and armour on the north and south walkways: time your dash. Close quarters, fast fights.
+const INFERNO: Omit<MapDef, 'id' | 'name' | 'desc'> = {
+  theme: { fog: 0x240804, fogD: 0.0075, hemiSky: 0xffa070, hemiGround: 0x2a0c04, ambient: 0x703428, key: 0xff7a40, rim: 0xc83c18, lamp: 0xff6a24, tint: [1.4, 0.78, 0.6] },
+  flags: { red: [-14, 0, 0], blue: [14, 0, 0] },
+  boxes: [
+    plat(0, 0, -13, 36, 10, 1.2, 1), plat(0, 0, 13, 36, 10, 1.2, 1), plat(-13, 0, 0, 10, 16, 1.2, 4), plat(13, 0, 0, 10, 16, 1.2, 2),   // the ring
+    plat(0, 0, 0, 3, 16, 0.8, 5),                                                                                                       // the catwalk over the lava
+    plat(-15.5, 4, -15.5, 5, 5, 1, 3), plat(15.5, 4, 15.5, 5, 5, 1, 3), plat(-15.5, 4, 15.5, 5, 5, 1, 3), plat(15.5, 4, -15.5, 5, 5, 1, 3),   // corner towers
+    pillar(-11, 0, -8.8, 1.4, 4), pillar(11, 0, 8.8, 1.4, 4), pillar(-11, 0, 8.8, 1.4, 4), pillar(11, 0, -8.8, 1.4, 4),
+    wall(-9, -12, -6, -11, 0), wall(6, 11, 9, 12, 0), wall(-16, -3, -15, 3, 0, 1.1), wall(15, -3, 16, 3, 0, 1.1),
+  ],
+  hazards: [{ kind: 'lava', x0: -8, x1: 8, z0: -8, z1: 8, y: -3 }],
+  spawns: [{ pos: [-15, 0, 6], yaw: -W }, { pos: [15, 0, -6], yaw: W }, { pos: [6, 0, 15], yaw: 0 }, { pos: [-6, 0, -15], yaw: Math.PI }],
+  pads: [
+    { kind: 'jump', pos: [-10, 0, -13], target: [-15.5, 4, -15.5] }, { kind: 'jump', pos: [10, 0, 13], target: [15.5, 4, 15.5] },
+    { kind: 'jump', pos: [-10, 0, 13], target: [-15.5, 4, 15.5] }, { kind: 'jump', pos: [10, 0, -13], target: [15.5, 4, -15.5] },
+  ],
+  teleporters: [
+    { pos: [-16.8, 0, -5], face: -W, dest: [12.5, 0, 5], yaw: W },
+    { pos: [16.8, 0, 5], face: W, dest: [-12.5, 0, -5], yaw: -W },
+  ],
+  pickups: [
+    { kind: 'booster', id: 'mega', pos: [0, 0, -13.5] }, { kind: 'armor', amount: 50, pos: [0, 0, 13.5] },
+    { kind: 'booster', id: 'overdrive', pos: [0, 0, 0] },
+    { kind: 'weapon', id: 'rail', pos: [-15.5, 4, -15.5] }, { kind: 'weapon', id: 'rail', pos: [15.5, 4, 15.5] },
+    { kind: 'weapon', id: 'rocket', pos: [-15.5, 4, 15.5] }, { kind: 'weapon', id: 'rocket', pos: [15.5, 4, -15.5] },
+    { kind: 'weapon', id: 'scatter', pos: [-12, 0, 9] }, { kind: 'weapon', id: 'scatter', pos: [12, 0, -9] },
+    { kind: 'weapon', id: 'nailer', pos: [-6, 0, 14] }, { kind: 'weapon', id: 'nailer', pos: [6, 0, -14] },
+    { kind: 'weapon', id: 'plasma', pos: [-14, 0, -9] }, { kind: 'weapon', id: 'arc', pos: [14, 0, 9] },
+    { kind: 'booster', id: 'haste', pos: [-9, 0, 0] }, { kind: 'booster', id: 'shield', pos: [9, 0, 0] },
+    { kind: 'health', amount: 25, pos: [-14, 0, 12] }, { kind: 'health', amount: 25, pos: [14, 0, -12] },
+    { kind: 'armor', amount: 25, pos: [14, 0, 12] }, { kind: 'armor', amount: 25, pos: [-14, 0, -12] },
+  ],
+  botZones: [{ x0: -17, x1: 17, z0: -17, z1: -9, y: 0 }, { x0: -17, x1: 17, z0: 9, z1: 17, y: 0 }],
+  lifts: [press(-3, -16.5, 3, -10.5, 7, CRUSH_H, 0), press(-3, 10.5, 3, 16.5, 7, CRUSH_H, 2.6)],
+};
+
+// ───────────── SKYWELL ─────────────
+// A tall open well: platforms spiral up around the shaft at 6, 12, 18 and 24 m, and every step up is a launch pad.
+// Whoever holds the top (rail + overdrive) rules the well; falling means a long drop to the floor or the void.
+const SKYWELL: Omit<MapDef, 'id' | 'name' | 'desc'> = {
+  theme: { fog: 0x0a1020, fogD: 0.0055, hemiSky: 0xb0c8ff, hemiGround: 0x101830, ambient: 0x384870, key: 0xc0d8ff, rim: 0x4068c0, lamp: 0x7ab4ff, tint: [0.85, 0.98, 1.3] },
+  boxes: [
+    plat(0, 0, 0, 30, 30, 1.5, 0),
+    plat(-10, 6, -10, 9, 9, 1, 4), plat(10, 6, 10, 9, 9, 1, 2),
+    plat(10, 12, -10, 9, 9, 1, 3), plat(-10, 12, 10, 9, 9, 1, 1),
+    plat(-10, 18, -10, 9, 9, 1, 4), plat(10, 18, 10, 9, 9, 1, 2),
+    plat(0, 24, 0, 10, 10, 1, 5),
+    pillar(-3, 0, -3, 1.4, 5), pillar(3, 0, 3, 1.4, 5), pillar(-3, 0, 3, 1.4, 5), pillar(3, 0, -3, 1.4, 5),
+    wall(-9, -1, -7, 1, 0, 1.1), wall(7, -1, 9, 1, 0, 1.1),
+  ],
+  spawns: [{ pos: [-12, 0, 0], yaw: -W }, { pos: [12, 0, 0], yaw: W }, { pos: [0, 0, 12], yaw: 0 }, { pos: [0, 0, -12], yaw: Math.PI }],
+  pads: [
+    { kind: 'jump', pos: [0, 0, -10], target: [-8, 6, -10] }, { kind: 'jump', pos: [0, 0, 10], target: [8, 6, 10] },
+    { kind: 'jump', pos: [-12.5, 6, -10], target: [8, 12, -10] }, { kind: 'jump', pos: [12.5, 6, 10], target: [-8, 12, 10] },
+    { kind: 'jump', pos: [10, 12, -7], target: [10, 18, 8] }, { kind: 'jump', pos: [-10, 12, 7], target: [-10, 18, -8] },
+    { kind: 'jump', pos: [-8, 18, -8], target: [-2, 24, -2] }, { kind: 'jump', pos: [8, 18, 8], target: [2, 24, 2] },
+    { kind: 'bounce', pos: [-5, 0, 0], tier: 'medium' }, { kind: 'bounce', pos: [5, 0, 0], tier: 'medium' },
+  ],
+  teleporters: [
+    { pos: [4.2, 24, 0], face: W, dest: [0, 0, 12], yaw: 0 },
+    { pos: [12.5, 0, -12.5], face: Math.atan2(12.5, -12.5), dest: [-3, 24, 0], yaw: -W },
+  ],
+  pickups: [
+    { kind: 'weapon', id: 'rail', pos: [-3, 24, 2] }, { kind: 'booster', id: 'overdrive', pos: [-1, 24, -3.5] },
+    { kind: 'booster', id: 'mega', pos: [0, 0, 0] },
+    { kind: 'weapon', id: 'rocket', pos: [-10, 18, -10] }, { kind: 'weapon', id: 'rocket', pos: [10, 18, 10] },
+    { kind: 'weapon', id: 'plasma', pos: [10, 12, -10] }, { kind: 'weapon', id: 'plasma', pos: [-10, 12, 10] },
+    { kind: 'weapon', id: 'nailer', pos: [-10, 6, -12] }, { kind: 'weapon', id: 'nailer', pos: [10, 6, 12] },
+    { kind: 'weapon', id: 'scatter', pos: [-12, 0, 8] }, { kind: 'weapon', id: 'scatter', pos: [12, 0, -8] }, { kind: 'weapon', id: 'arc', pos: [0, 0, -13] },
+    { kind: 'booster', id: 'haste', pos: [-13, 0, -8] }, { kind: 'booster', id: 'regen', pos: [13, 0, 8] }, { kind: 'booster', id: 'shield', pos: [13, 12, -12] },
+    { kind: 'health', amount: 25, pos: [-12, 6, -8] }, { kind: 'health', amount: 25, pos: [12, 6, 8] },
+    { kind: 'armor', amount: 25, pos: [-12, 12, 12] }, { kind: 'armor', amount: 25, pos: [12, 18, 12] },
+  ],
+  botZones: [{ x0: -13, x1: 13, z0: -13, z1: 13, y: 0 }],
+};
+
+// ───────────── CITADEL ─────────────
+// A symmetric flag-capture map: two keeps face each other across a wide gap, joined by two bridges. In the middle a small island
+// (rail + overdrive) is served by drifting ferries that slide out from each keep and back. Gates cross between the far corners.
+const CITADEL: Omit<MapDef, 'id' | 'name' | 'desc'> = {
+  theme: { fog: 0x0a0e1c, fogD: 0.0046, hemiSky: 0xb8c8f0, hemiGround: 0x101428, ambient: 0x38406a, key: 0xc8d4ff, rim: 0x5060c0, lamp: 0x8aa8ff, tint: [0.92, 0.98, 1.22] },
+  flags: { red: [-38, 4, 0], blue: [38, 4, 0] },
+  boxes: [
+    plat(-30, 4, 0, 24, 30, 1.5, 4), plat(30, 4, 0, 24, 30, 1.5, 2),                   // the keeps
+    plat(0, 4, -11, 36, 3, 0.7, 5), plat(0, 4, 11, 36, 3, 0.7, 5),                     // the bridges
+    plat(0, 4, 0, 8, 8, 1, 0),                                                         // the island
+    pillar(-36, 4, -12, 1.4, 4), pillar(-36, 4, 12, 1.4, 4), pillar(36, 4, -12, 1.4, 4), pillar(36, 4, 12, 1.4, 4),
+    wall(-26, -4, -25, 4, 4, 1.1), wall(25, -4, 26, 4, 4, 1.1), wall(-32, -10, -29, -9, 4), wall(29, 9, 32, 10, 4), wall(-32, 9, -29, 10, 4), wall(29, -10, 32, -9, 4),
+    wall(-2, -12, 2, -11, 4), wall(-2, 11, 2, 12, 4),
+  ],
+  spawns: [{ pos: [-30, 4, -8], yaw: -W }, { pos: [30, 4, 8], yaw: W }, { pos: [-30, 4, 8], yaw: -W }, { pos: [30, 4, -8], yaw: W }],
+  pads: [
+    { kind: 'bounce', pos: [-24, 4, 0], tier: 'small' }, { kind: 'bounce', pos: [24, 4, 0], tier: 'small' },
+  ],
+  teleporters: [
+    { pos: [-40.5, 4, -12], face: -W, dest: [36, 4, 12], yaw: W },
+    { pos: [40.5, 4, 12], face: W, dest: [-36, 4, -12], yaw: -W },
+  ],
+  pickups: [
+    { kind: 'weapon', id: 'rail', pos: [-1.5, 4, 0] }, { kind: 'booster', id: 'overdrive', pos: [1.5, 4, 0] },
+    { kind: 'booster', id: 'mega', pos: [-37, 4, -5] }, { kind: 'booster', id: 'mega', pos: [37, 4, 5] },
+    { kind: 'weapon', id: 'rocket', pos: [-34, 4, 0] }, { kind: 'weapon', id: 'rocket', pos: [34, 4, 0] },
+    { kind: 'weapon', id: 'plasma', pos: [-22, 4, -9] }, { kind: 'weapon', id: 'plasma', pos: [22, 4, 9] },
+    { kind: 'weapon', id: 'nailer', pos: [-22, 4, 9] }, { kind: 'weapon', id: 'nailer', pos: [22, 4, -9] },
+    { kind: 'weapon', id: 'scatter', pos: [-12, 4, -11] }, { kind: 'weapon', id: 'scatter', pos: [12, 4, 11] }, { kind: 'weapon', id: 'arc', pos: [12, 4, -11] },
+    { kind: 'booster', id: 'haste', pos: [-12, 4, 11] }, { kind: 'booster', id: 'shield', pos: [0, 4, -11] }, { kind: 'booster', id: 'regen', pos: [0, 4, 11] },
+    { kind: 'health', amount: 25, pos: [-38, 4, 10] }, { kind: 'health', amount: 25, pos: [38, 4, -10] },
+    { kind: 'armor', amount: 25, pos: [-28, 4, -14] }, { kind: 'armor', amount: 25, pos: [28, 4, 14] },
+  ],
+  botZones: [{ x0: -40, x1: -20, z0: -13, z1: 13, y: 4 }, { x0: 20, x1: 40, z0: -13, z1: 13, y: 4 }],
+  lifts: [slide(-18, -2.5, -13, 2.5, 4, 9, 0, 0, 3, 4.5), slide(13, -2.5, 18, 2.5, 4, -9, 0, 4, 3, 4.5)],
+};
+
 export const MAPS: Record<string, MapDef> = {
   boreal: { id: 'boreal', name: 'IRON CRADLE', desc: 'Floating islands, jump pads, one high tower', ...CRADLE },
   void: { id: 'void', name: 'DEEP VOID', desc: 'The same arena in a darker, colder light', ...CRADLE, theme: { ...T_DEFAULT, hemiSky: 0x9aa8d0, key: 0xb0bce0, ambient: 0x2a3048, lamp: 0x80a0ff, tint: [0.8, 0.88, 1.1] } },
   spire: { id: 'spire', name: 'SPIRE RING', desc: 'Hub, bridges, high perches and a spire. 6 teleporters', ...SPIRE },
   bastion: { id: 'bastion', name: 'TWIN BASTIONS', desc: 'Two fortresses facing off over a sunken island', ...BASTION },
-  foundry: { id: 'foundry', name: 'FOUNDRY', desc: 'Sealed hall with a catwalk loop, lifts and a reactor core', ...FOUNDRY },
-  crypt: { id: 'crypt', name: 'CRYPT', desc: 'Sealed halls and doorways, lifts to the catwalks. Close-quarters', ...CRYPT },
+  foundry: { id: 'foundry', name: 'FOUNDRY', desc: 'Sealed hall with a catwalk loop, lifts and a reactor core', ...FOUNDRY, blackout: true },
+  crypt: { id: 'crypt', name: 'CRYPT', desc: 'Sealed halls and doorways, lifts to the catwalks. Close-quarters', ...CRYPT, blackout: true },
   ring: { id: 'ring', name: 'THE RING', desc: 'A loop around a void. Long lines of fire', ...RING },
   canyon: { id: 'canyon', name: 'CANYON', desc: 'Wide open valley, high ridge decks, a bridge and a central island. Long sight lines', ...CANYON },
-  tower: { id: 'tower', name: 'TOWER', desc: 'Sealed three-storey building with lifts, atrium and a top gallery', ...TOWER },
+  inferno: { id: 'inferno', name: 'INFERNO', desc: 'Close-quarters ring around a lava pit. Crushers guard the health', ...INFERNO },
+  skywell: { id: 'skywell', name: 'SKYWELL', desc: 'A tall well of launch pads. Hold the top', ...SKYWELL },
+  citadel: { id: 'citadel', name: 'CITADEL', desc: 'Symmetric keeps, two bridges and drifting ferries to the island', ...CITADEL },
+  tower: { id: 'tower', name: 'TOWER', desc: 'Sealed three-storey building with lifts, atrium and a top gallery', ...TOWER, blackout: true },
 };
 export const MAP_LIST = Object.values(MAPS);
 function pickMap(): string {
@@ -419,8 +552,10 @@ function pickMap(): string {
 export const MAP_ID = typeof location === 'undefined' ? 'boreal' : pickMap();
 const DEF = MAPS[MAP_ID];
 export const lifts = DEF.lifts ?? [];
+export const hazards = DEF.hazards ?? [];
+export const blackout = !!DEF.blackout;
 /** each lift's collision box (moved every step by lifts.ts) shares the same list the player collides with */
-export const liftBoxes: Box[] = lifts.map(l => ({ min: [l.x0, l.y0 - 0.5, l.z0] as [number, number, number], max: [l.x1, l.y0, l.z1] as [number, number, number], kind: 'lift' as const }));
+export const liftBoxes: Box[] = lifts.map(l => ({ min: [l.x0, l.y0 - (l.crush ? CRUSH_H : 0.5), l.z0] as [number, number, number], max: [l.x1, l.y0, l.z1] as [number, number, number], kind: 'lift' as const }));
 /**
  * Fire: stone stands (solid, ~1 m tall) at floor corners and along long edges, fire bowls on top of tall pillars, and wall sconces on the
  * inside of sealed buildings. `pos` is where the flame starts; stands add a small solid prop box so nobody walks through them.
@@ -507,7 +642,7 @@ export const flags = DEF.flags;
 /** King of the Hill: the zone that scores (a circle on a floor). Every map has one, on its most contested ground */
 const HILLS: Record<string, { pos: [number, number, number]; r: number }> = {
   boreal: { pos: [0, 20, 0], r: 5 }, void: { pos: [0, 20, 0], r: 5 }, spire: { pos: [0, 16, 0], r: 3.4 }, bastion: { pos: [0, 0, 0], r: 5.5 },
-  foundry: { pos: [0, 1.2, 0], r: 3.4 }, crypt: { pos: [0, 0, 0], r: 3.6 }, ring: { pos: [0, 10, 0], r: 4.5 }, tower: { pos: [0, 0, 0], r: 4 }, canyon: { pos: [0, 13, 0], r: 4.5 },
+  foundry: { pos: [0, 1.2, 0], r: 3.4 }, inferno: { pos: [0, 0, 0], r: 1.6 }, skywell: { pos: [0, 24, 0], r: 4 }, citadel: { pos: [0, 4, 0], r: 3.4 }, crypt: { pos: [0, 0, 0], r: 3.6 }, ring: { pos: [0, 10, 0], r: 4.5 }, tower: { pos: [0, 0, 0], r: 4 }, canyon: { pos: [0, 13, 0], r: 4.5 },
 };
 export const hill = HILLS[MAP_ID] ?? { pos: [0, 0, 0] as [number, number, number], r: 4 };
 
