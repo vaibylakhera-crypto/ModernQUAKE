@@ -214,11 +214,11 @@ export interface WeaponStats {
 
 export const WEAPON_DEFS: Record<WeaponId, { name: string; build: () => WeaponModel; color: number; stats: WeaponStats }> = {
   blade:   { name: 'EDGE',       build: blade,   color: 0x5ee8ff, stats: { slot: 1, interval: 0.38, auto: false, kind: 'melee', damage: 50, ammoStart: -1, ammoMax: -1, ammoPickup: 0, range: 2.1 } },
-  pistol:  { name: 'SIDEARM',    build: pistol,  color: 0xffe14a, stats: { slot: 2, interval: 0.26, auto: false, kind: 'hitscan', damage: 15, ammoStart: -1, ammoMax: -1, ammoPickup: 0, spread: 0.004, range: 200 } },
+  pistol:  { name: 'SIDEARM',    build: pistol,  color: 0xffe14a, stats: { slot: 2, interval: 0.26, auto: false, kind: 'hitscan', damage: 12, ammoStart: -1, ammoMax: -1, ammoPickup: 0, spread: 0.004, range: 200 } },
   scatter: { name: 'WARDEN',     build: scatter, color: 0xff7a1a, stats: { slot: 3, interval: 0.9, auto: false, kind: 'hitscan', damage: 8, pellets: 12, spread: 0.055, range: 60, ammoStart: 12, ammoMax: 30, ammoPickup: 10 } },
   nailer:  { name: 'RIVET',      build: nailer,  color: 0xffc02d, stats: { slot: 4, interval: 0.085, auto: true, kind: 'projectile', damage: 9, speed: 55, spread: 0.012, ammoStart: 60, ammoMax: 200, ammoPickup: 50 } },
   rocket:  { name: 'HAMMERFALL', build: rocket,  color: 0xff3a2a, stats: { slot: 5, interval: 0.8, auto: false, kind: 'projectile', damage: 100, speed: 28, splash: 4.2, knock: 17, ammoStart: 5, ammoMax: 25, ammoPickup: 5 } },
-  arc:     { name: 'STORMCALLER', build: arc,    color: 0x9a7bff, stats: { slot: 6, interval: 0.05, auto: true, kind: 'beam', damage: 3, range: 18, ammoStart: 80, ammoMax: 200, ammoPickup: 50 } },
+  arc:     { name: 'STORMCALLER', build: arc,    color: 0x9a7bff, stats: { slot: 6, interval: 0.05, auto: true, kind: 'beam', damage: 6, range: 18, ammoStart: 80, ammoMax: 200, ammoPickup: 50 } },
   rail:    { name: 'LONGSHOT',   build: rail,    color: 0x4af0ff, stats: { slot: 7, interval: 1.4, auto: false, kind: 'rail', damage: 100, range: 400, ammoStart: 5, ammoMax: 25, ammoPickup: 5 } },
   plasma:  { name: 'PULSE',      build: plasma,  color: 0x35d0ff, stats: { slot: 8, interval: 0.11, auto: true, kind: 'projectile', damage: 14, speed: 45, splash: 1.4, knock: 3, ammoStart: 50, ammoMax: 200, ammoPickup: 40 } },
 };
