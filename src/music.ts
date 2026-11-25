@@ -213,8 +213,10 @@ export class Music {
     }
   }
   /** the adaptive battle score: layers switch on as the intensity rises */
+  /** phones: cap how busy the battle score gets (fewer sounds per beat = less audio work and less garbage) */
+  light = false;
   private score(i: number, bar: number, t: number, s: Synth) {
-    const k = this.intensity, minor = [40, 36, 43, 38][Math.floor(bar / 2) % 4];
+    const k = this.light ? Math.min(0.6, this.intensity) : this.intensity, minor = [40, 36, 43, 38][Math.floor(bar / 2) % 4];
     if (i === 0 && bar % 4 === 0) s.pad(t, [minor - 12, minor - 5, minor], 60 / (88 + 44 * k) * 16, 0.1 + 0.06 * k, 500 + 900 * k);        // dark drone
     // 1) the war-drum heartbeat: "DUM . . . dum . . ."
     if (i === 0) s.tom(t, 62, 1); if (i === 8) s.tom(t, 70, 0.7);

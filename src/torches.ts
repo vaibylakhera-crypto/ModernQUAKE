@@ -9,7 +9,7 @@ export const torchTime = { value: 0 };
 let maxLights = 2, glowMesh: THREE.Object3D | null = null, sparkMesh: THREE.Object3D | null = null;
 /** effect level: 0 full · 1 no real lights · 2 also no sparks or floor glow (the game steps this up by itself when the frame rate stays low) */
 export function setFireQuality(level: number, phone = false) {
-  maxLights = level >= 1 ? 0 : phone ? 1 : 2;
+  maxLights = level >= 1 || phone ? 0 : 2;           // real lights are for desktops: on a phone they make every surface cost more to draw
   if (sparkMesh) sparkMesh.visible = level < 2; if (glowMesh) glowMesh.visible = level < 2;
   for (const l of fireLights) if (maxLights === 0) l.intensity = 0;
 }

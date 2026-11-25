@@ -156,20 +156,20 @@ addEventListener('resize', () => {
 });
 
 // adaptive resolution: keep >= ~55 fps by trading render scale (weak GPUs); recovers when there is headroom
-let frames = 0, accMs = 0, goodSecs = 0, lowSecs = 0, fxLevel = 0, lastFps = 0;
+let frames = 0, accMs = 0, goodSecs = 0, lowSecs = 0, fxLevel = 0, lastFps = 0, worstMs = 0, lastWorst = 0;
 // diagnostics overlay: add ?perf=1 to the address, or tap the top centre of the screen three times quickly
 const perfEl = document.getElementById('perf')!;
 if (new URLSearchParams(location.search).has('perf')) document.body.classList.add('perf');
 { let taps: number[] = []; addEventListener('touchstart', e => { const t = e.touches[0]; if (!t || t.clientY > 70 || Math.abs(t.clientX - innerWidth / 2) > innerWidth * 0.2) return; const n = performance.now(); taps = taps.filter(x => n - x < 900); taps.push(n); if (taps.length >= 3) { taps = []; document.body.classList.toggle('perf'); } }, { passive: true }); }
 function adapt(ms: number) {
-  accMs += ms; frames++;
+  accMs += ms; frames++; if (ms > worstMs) worstMs = ms;
   if (accMs < 1000) return;
   const avg = accMs / frames; frames = 0; accMs = 0;
   const med = document.getElementById('medal'); if (med) med.textContent = `${Math.round(1000 / avg)} FPS · ${Q.tier.toUpperCase()} · RES ${Math.round(renderScale * 100)}%`;
-  lastFps = Math.round(1000 / avg);
+  lastFps = Math.round(1000 / avg); const worst = Math.round(worstMs); worstMs = 0; lastWorst = worst;
   // already at the lowest resolution and still slow: switch effects off, one step at a time
   if (avg > 24 && renderScale <= Q.minScale + 0.001) { if (++lowSecs >= 3 && fxLevel < 2) { fxLevel++; setFireQuality(fxLevel, TOUCH); lowSecs = 0; } } else lowSecs = 0;
-  if (document.body.classList.contains('perf')) { const a = sfx.stats(), ri = renderer.info.render; perfEl.textContent = `${lastFps} FPS  ·  ${Q.tier.toUpperCase()}  ·  res ${Math.round(renderScale * 100)}%\neffects level ${fxLevel}  ·  draws ${ri.calls}  ·  tris ${Math.round(ri.triangles / 1000)}k\naudio ${a.state}  ·  voices ${a.live}  ·  music ${music.playing ? 'on' : 'off'}\nping ${net.online ? Math.round((net as any).ping ?? 0) + ' ms' : 'solo'}`; }
+  if (document.body.classList.contains('perf')) { const a = sfx.stats(), ri = renderer.info.render; perfEl.textContent = `${lastFps} FPS (worst frame ${lastWorst} ms)  ·  ${Q.tier.toUpperCase()}  ·  res ${Math.round(renderScale * 100)}%\neffects level ${fxLevel}  ·  draws ${ri.calls}  ·  tris ${Math.round(ri.triangles / 1000)}k\naudio ${a.state}  ·  voices ${a.live}  ·  music ${music.playing ? 'on' : 'off'}\nping ${net.online ? Math.round((net as any).ping ?? 0) + ' ms' : 'solo'}`; }
   if (avg > 18.5 && renderScale > Q.minScale) { renderScale = Math.max(Q.minScale, renderScale - 0.08); applyRes(); goodSecs = 0; }
   else if (avg < (TOUCH ? 17.4 : 12.5) && renderScale < (saverOn ? Math.min(Q.renderScale, 0.6) : Q.renderScale)) {
     // phones are capped at 60 fps, so "fast" means holding the cap; climb back slowly after 3 steady seconds
@@ -374,6 +374,7 @@ const hitEl = document.getElementById('hit')!; let hitT = 0;
 let lastWeapon = ''; const crossEl = document.getElementById('cross')!; let crossKick = 0, crossGap = 6;
 // ---- music + announcer ----
 const music = new Music();
+music.light = TOUCH;                 // phones get a lighter battle score
 const announcer = new Announcer(document.getElementById('announce')!);
 announcer.onSpeak = () => music.duck();
 music.onNow = t => say(`♪ ${t.name}`);
@@ -1178,4 +1179,4 @@ function frame(now: number) {
 requestAnimationFrame(frame);
 
 // dev/test hook
-(window as any).__game = { bots, net, remotes, menu, stars, scene, sfx, Music, music, announcer, feed, riders, nav: navMod, voice, get ts() { return ts; }, myTeam, flagSt: () => flagSt, teamOfOwner, soloKill, grantBooster, boost, liftSys, lifts: __lifts, level: { torches: levelTorches, pads: levelPads, teleporters: levelTeleporters, boxes, pickups: levelPickups, spawns: levelSpawns }, get mode() { return mode; }, get matchState() { return matchState; }, scores: () => board(), doFire, player, camera, vm, loadout, combat, pickupSys, targets, say, die, renderer, world, Q, get scale() { return renderScale; }, setLook: (y: number, p: number) => { yaw = y; pitch = p; }, PM, assistTest: { get yaw() { return yaw; }, get pitch() { return pitch; }, get friction() { return assistFriction; }, setFire: (v: boolean) => { mouseDown = v; }, step: (dt: number) => aimAssist(dt) } };
+(window as any).__game = { bots, net, remotes, menu, stars, scene, sfx, Music, music, announcer, feed, riders, nav: navMod, voice, get ts() { return ts; }, myTeam, flagSt: () => flagSt, teamOfOwner, soloKill, grantBooster, boost, liftSys, lifts: __lifts, level: { torches: levelTorches, pads: levelPads, teleporters: levelTeleporters, boxes, pickups: levelPickups, spawns: levelSpawns }, get mode() { return mode; }, get matchState() { return matchState; }, scores: () => board(), doFire, player, camera, vm, loadout, combat, pickupSys, targets, say, die, renderer, world, Q, get scale() { return renderScale; }, setLook: (y: number, p: number) => { yaw = y; pitch = p; }, PM, fx: (lvl: number) => setFireQuality(lvl, TOUCH), assistTest: { get yaw() { return yaw; }, get pitch() { return pitch; }, get friction() { return assistFriction; }, setFire: (v: boolean) => { mouseDown = v; }, step: (dt: number) => aimAssist(dt) } };
