@@ -307,6 +307,17 @@
   body.touch #radar{width:clamp(72px,24vh,92px);height:clamp(72px,24vh,92px);left:calc(10px + env(safe-area-inset-left));top:calc(var(--top) + clamp(58px,17vh,72px))}
   body.touch.radar #boosts{top:calc(var(--top) + clamp(58px,17vh,72px) + clamp(72px,24vh,92px) + 8px)}
   body.radar:not(.touch) #boosts{top:170px}
+  /* phone vitals: numbers only, big and easy to read (no bars) */
+  body.touch #vitals{display:grid !important;grid-template-columns:auto auto;column-gap:14px;row-gap:0;width:auto !important;min-width:0;padding:4px 12px 3px !important}
+  body.touch #vitals .vbar{display:none}
+  body.touch #vitals .vrow{margin:0 !important;display:flex;align-items:center;gap:5px}
+  body.touch #vitals .vrow b{font-size:clamp(24px,8.4vh,34px) !important;line-height:1;min-width:0 !important;letter-spacing:.02em}
+  body.touch #vitals .vico{font-size:clamp(13px,4vh,17px) !important;width:auto !important}
+  body.touch #vitals #frags{grid-column:1 / -1;font-size:9px;margin-top:1px;letter-spacing:.16em;opacity:.8}
+  body.touch #vitals.low .vhp b{color:#ff4a3a}
+  body.touch #radar{top:calc(var(--top) + clamp(52px,16vh,64px))}
+  body.touch.radar #boosts{top:calc(var(--top) + clamp(52px,16vh,64px) + clamp(72px,24vh,92px) + 8px)}
+  body.touch #boosts{top:calc(var(--top) + clamp(52px,16vh,64px))}
 </style>
 </head>
 <body>
