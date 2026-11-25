@@ -9,6 +9,7 @@ import { Arena } from './arena';
 import { updateFireLights, setFireQuality } from './torches';
 import { buildEmbers } from './props';
 import { Radar } from './radar';
+import { GamepadInput } from './gamepad';
 import { PISTOL_MAG, PISTOL_RELOAD } from './loadout';
 import { botAdapt } from './bot';
 import { kitOptions } from './kit';
@@ -232,7 +233,8 @@ function applySaver(on: boolean) {
   setFireQuality(on ? 2 : fxLevel, TOUCH); embers.points.visible = !on;
   renderScale = on ? Math.max(Q.minScale, Math.min(renderScale, 0.6)) : Q.renderScale; applyRes();
 }
-const locked = () => touchPlaying || document.pointerLockElement === renderer.domElement;
+const gpad = new GamepadInput(); let padPlaying = false, padFire = false, padScores = false;
+const locked = () => touchPlaying || document.pointerLockElement === renderer.domElement || (padPlaying && !menu.open && mode !== 'title');
 let lockedAt = 0, lockExitAt = 0;
 function resume() {
   sfx.unlock(); music.start();     // audio may only start from a user gesture (iOS)
@@ -317,7 +319,7 @@ function refreshBar() {
   }
 }
 let mouseDown = false, lookDX = 0, lookDY = 0;
-const firing = () => mouseDown || !!touch?.fire;
+const firing = () => mouseDown || !!touch?.fire || padFire;
 addEventListener('mousedown', e => { if (locked() && e.button === 0) mouseDown = true; });
 addEventListener('mouseup', e => { if (e.button === 0) mouseDown = false; });
 addEventListener('wheel', e => { if (locked()) vm.select(loadout.step(vm.target, e.deltaY > 0 ? 1 : -1)); });
@@ -343,7 +345,7 @@ function showDamageDir(ax: number, az: number) {
 }
 let vibrate = true;
 try { vibrate = localStorage.getItem('mq-vibe') !== '0'; } catch { /* ignore */ }
-const buzz = (ms: number) => { if (vibrate && TOUCH) try { navigator.vibrate?.(ms); } catch { /* unsupported */ } };
+const buzz = (ms: number) => { if (vibrate && TOUCH) try { navigator.vibrate?.(ms); } catch { /* unsupported */ } if (padPlaying) gpad.rumble(ms * 3, 0.45); };
 let sayTimer: number | undefined;
 function say(text: string) { msgEl.textContent = text; msgEl.style.opacity = '1'; clearTimeout(sayTimer); sayTimer = window.setTimeout(() => (msgEl.style.opacity = '0'), 1100); }
 
@@ -1174,6 +1176,19 @@ function frame(now: number) {
     }
   }
   if (frozen) acc = 0;
+  const pd = gpad.poll();                                          // controller: sticks, triggers and buttons
+  if (pd.connected) {
+    if (pd.anyInput && !padPlaying && !menu.open && mode !== 'title') padPlaying = true;
+    if (pd.start) { if (menu.open) { if (menu.screen === 'pause' || menu.screen === 'lobby') resume(); } else if (padPlaying) openPause(); }
+    padFire = padPlaying && pd.fire; if (padPlaying && pd.scores !== padScores) { padScores = pd.scores; if (pd.scores) pushView(); menu.showScores(pd.scores); }
+    if (padPlaying && locked() && !frozen) {
+      const dt = Math.min(0.05, frameMs / 1000), r = 3.3 * aimSens * assistFriction;
+      yaw -= pd.lookX * r * dt; pitch = Math.max(-Math.PI / 2 + 0.01, Math.min(Math.PI / 2 - 0.01, pitch - pd.lookY * r * 0.8 * dt)); lookDX += pd.lookX * 40 * dt; lookDY += pd.lookY * 40 * dt;
+      if (pd.jump) jumpQueued = true;
+      if (pd.next) vm.select(loadout.step(vm.target, 1)); if (pd.prev) vm.select(loadout.step(vm.target, -1));
+      if (pd.reload && vm.current === 'pistol') loadout.startReload();
+    }
+  } else { padPlaying = false; padFire = false; }
   if (!frozen) aimAssist(Math.min(0.05, frameMs / 1000));
   applySaver(menu.settings.saver);
   { // mini-map: redrawn ten times a second
@@ -1183,9 +1198,9 @@ function frame(now: number) {
   }
   while (acc >= DT) {
     const input: Input = {
-      forward: deadT > 0 ? 0 : Math.max(-1, Math.min(1, (keys.has('KeyW') ? 1 : 0) - (keys.has('KeyS') ? 1 : 0) + (touch?.forward ?? 0))),
-      side: deadT > 0 ? 0 : Math.max(-1, Math.min(1, (keys.has('KeyD') ? 1 : 0) - (keys.has('KeyA') ? 1 : 0) + (touch?.side ?? 0))),
-      jumpPressed: jumpQueued && deadT <= 0, crouch: deadT <= 0 && (keys.has('KeyC') || keys.has('ControlLeft') || !!touch?.crouch), yaw,
+      forward: deadT > 0 ? 0 : Math.max(-1, Math.min(1, (keys.has('KeyW') ? 1 : 0) - (keys.has('KeyS') ? 1 : 0) + (touch?.forward ?? 0) + (padPlaying ? pd.forward : 0))),
+      side: deadT > 0 ? 0 : Math.max(-1, Math.min(1, (keys.has('KeyD') ? 1 : 0) - (keys.has('KeyA') ? 1 : 0) + (touch?.side ?? 0) + (padPlaying ? pd.side : 0))),
+      jumpPressed: jumpQueued && deadT <= 0, crouch: deadT <= 0 && (keys.has('KeyC') || keys.has('ControlLeft') || !!touch?.crouch || (padPlaying && pd.crouch)), yaw,
     };
     jumpQueued = false;
     liftSys.update((Date.now() + timeOffset) / 1000, riders());
