@@ -1,6 +1,6 @@
 // Map dressing: team banners at the flag bases, glowing rings turning around the big pickups, and drifting embers in the air.
 import * as THREE from 'three';
-import { flags, pickups, THEME } from './level';
+import { flags, pickups, THEME, MAP_ID } from './level';
 import { BOOSTERS } from './pickups';
 
 export const propTime = { value: 0 };
@@ -43,6 +43,23 @@ export function buildProps(): { group: THREE.Group; spin: THREE.Object3D[] } {
       const holder = new THREE.Group(); holder.position.set(p.pos[0], p.pos[1] + 1.05, p.pos[2]); holder.rotation.x = tilt; holder.rotation.y = i * 1.2;
       const ring = new THREE.Mesh(new THREE.TorusGeometry(1.05 - i * 0.18, 0.035, 6, 48), new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false }));
       holder.add(ring); group.add(holder); spin.push(ring);
+    }
+  }
+  // Foundry: pairs of big interlocking gears turning slowly on the north and south walls
+  if (MAP_ID === 'foundry') {
+    const gear = (r: number, teeth: number) => {
+      const sh = new THREE.Shape(), step = Math.PI * 2 / teeth;
+      for (let i = 0; i < teeth; i++) { const a = i * step, pts = [[a, r], [a + step * 0.2, r], [a + step * 0.3, r + 0.38], [a + step * 0.7, r + 0.38], [a + step * 0.8, r]]; for (const [aa, rr] of pts) { const x = Math.cos(aa) * rr, y = Math.sin(aa) * rr; if (i === 0 && aa === a) sh.moveTo(x, y); else sh.lineTo(x, y); } }
+      sh.closePath(); const hole = new THREE.Path(); hole.absarc(0, 0, r * 0.28, 0, Math.PI * 2, true); sh.holes.push(hole);
+      for (let k = 0; k < 4; k++) { const sp = new THREE.Path(), a0 = k * Math.PI / 2 + 0.55, rr = r * 0.62; sp.absarc(Math.cos(a0) * rr, Math.sin(a0) * rr, r * 0.17, 0, Math.PI * 2, true); sh.holes.push(sp); }     // lightening holes
+      return new THREE.ExtrudeGeometry(sh, { depth: 0.45, bevelEnabled: true, bevelSize: 0.05, bevelThickness: 0.05, bevelSegments: 1 });
+    };
+    const mat = new THREE.MeshLambertMaterial({ color: 0x8a7868, emissive: 0x2a1a10 }), rim = new THREE.MeshBasicMaterial({ color: new THREE.Color(THEME.lamp).multiplyScalar(0.7), transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false });
+    for (const side of [-1, 1]) for (const [x, r, teeth, sp] of [[-6, 1.7, 14, 0.3], [-2.95, 1.25, 10, -0.41], [6, 1.5, 12, -0.34], [9, 1.1, 9, 0.46]] as const) {
+      const holder = new THREE.Group(); holder.position.set(x, 8.7, side * 15.8); holder.rotation.y = side < 0 ? 0 : Math.PI;
+      const g = new THREE.Mesh(gear(r, teeth), mat); g.userData.speed = sp * (side < 0 ? 1 : -1); g.position.z = 0;
+      const glow = new THREE.Mesh(new THREE.TorusGeometry(r * 0.3, 0.03, 6, 32), rim); glow.position.z = 0.5; g.add(glow);
+      holder.add(g); group.add(holder); spin.push(g);
     }
   }
   return { group, spin };

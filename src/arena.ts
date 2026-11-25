@@ -247,5 +247,5 @@ export class Arena {
   /** tSec: the shared (server) clock the lifts run on */
   update(t: number, tSec = Date.now() / 1000) {
     this.liftMeshes.forEach((m, i) => { m.g.position.y = liftBoxes[i].max[1]; m.edge.color.set(liftMoving(lifts[i], tSec) ? 0xffffff : THEME.lamp); });
-    padTime.value = t; teleTime.value = t; torchTime.value = t; propTime.value = t; this.rings.forEach((o, i) => { o.rotation.z = t * (i % 2 ? -0.9 : 0.7); }); this.spin.forEach((o, i) => { o.rotation.z = t * (i % 2 ? -1.4 : 1.1); o.position.y += Math.sin(t * 2 + i) * 0.002; }); }
+    padTime.value = t; teleTime.value = t; torchTime.value = t; propTime.value = t; this.rings.forEach((o, i) => { o.rotation.z = t * (o.userData.speed ?? (i % 2 ? -0.9 : 0.7)); }); this.spin.forEach((o, i) => { o.rotation.z = t * (i % 2 ? -1.4 : 1.1); o.position.y += Math.sin(t * 2 + i) * 0.002; }); }
 }
