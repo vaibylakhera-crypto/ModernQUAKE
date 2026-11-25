@@ -357,6 +357,50 @@ const RING: Omit<MapDef, 'id' | 'name' | 'desc'> = {
   botZones: [{ x0: -34, x1: 34, z0: -34, z1: -26, y: 0 }],
 };
 
+// ───────────── CANYON ─────────────
+// A wide, open valley with a high ridge deck at each end, a bridge between them and a small island above the middle (rail + overdrive).
+// Long sight lines: the valley is for running and rockets, the decks and the island for snipers. Launch pads lift you from the valley to the
+// decks and from the bridge to the island; two gates cross the map between the far corners of the decks.
+const CANYON: Omit<MapDef, 'id' | 'name' | 'desc'> = {
+  theme: { fog: 0x2a1208, fogD: 0.0032, hemiSky: 0xffc890, hemiGround: 0x2a1408, ambient: 0x6a4630, key: 0xffb060, rim: 0xa04028, lamp: 0xffc060, tint: [1.28, 0.88, 0.7] },
+  flags: { red: [-38, 7, 0], blue: [38, 7, 0] },
+  boxes: [
+    plat(0, 0, 0, 92, 40, 1.5, 0),                                         // the valley floor
+    plat(-36, 7, 0, 18, 40, 1.2, 4), plat(36, 7, 0, 18, 40, 1.2, 2),       // west / east ridge decks
+    plat(0, 7, 0, 54, 6, 0.8, 5),                                          // the bridge
+    plat(0, 13, 0, 10, 10, 1, 0),                                          // the island over the middle
+    pillar(-14, 0, -12, 1.6, 5), pillar(14, 0, -12, 1.6, 5), pillar(-14, 0, 12, 1.6, 5), pillar(14, 0, 12, 1.6, 5),
+    pillar(-36, 7, -15, 1.4, 4), pillar(-36, 7, 15, 1.4, 4), pillar(36, 7, -15, 1.4, 4), pillar(36, 7, 15, 1.4, 4),
+    wall(-8, -9, -4, -8, 0), wall(4, 8, 8, 9, 0), wall(-3, -14, 3, -13, 0), wall(-3, 13, 3, 14, 0),
+    wall(-41, -10, -39, -9, 7), wall(-41, 9, -39, 10, 7), wall(39, -10, 41, -9, 7), wall(39, 9, 41, 10, 7),
+    wall(-14, -1, -12, 1, 7), wall(12, -1, 14, 1, 7),                      // cover on the bridge
+  ],
+  spawns: [{ pos: [-22, 0, -9], yaw: -W }, { pos: [22, 0, 9], yaw: W }, { pos: [-22, 0, 9], yaw: -W }, { pos: [22, 0, -9], yaw: W }],
+  pads: [
+    { kind: 'jump', pos: [-23, 0, -12], target: [-31, 7, -12] }, { kind: 'jump', pos: [-23, 0, 12], target: [-31, 7, 12] },
+    { kind: 'jump', pos: [23, 0, -12], target: [31, 7, -12] }, { kind: 'jump', pos: [23, 0, 12], target: [31, 7, 12] },
+    { kind: 'jump', pos: [-8, 7, 0], target: [-2, 13, 0] }, { kind: 'jump', pos: [8, 7, 0], target: [2, 13, 0] },
+  ],
+  teleporters: [
+    { pos: [-43.5, 7, -12], face: -W, dest: [36, 7, 12], yaw: W },
+    { pos: [43.5, 7, 12], face: W, dest: [-36, 7, -12], yaw: -W },
+  ],
+  pickups: [
+    { kind: 'booster', id: 'mega', pos: [0, 0, 0] },
+    { kind: 'weapon', id: 'rail', pos: [-2, 13, 0] }, { kind: 'booster', id: 'overdrive', pos: [2, 13, 0] },
+    { kind: 'weapon', id: 'rocket', pos: [-33, 7, -8] }, { kind: 'weapon', id: 'rocket', pos: [33, 7, 8] },
+    { kind: 'weapon', id: 'nailer', pos: [-33, 7, 8] }, { kind: 'weapon', id: 'nailer', pos: [33, 7, -8] },
+    { kind: 'weapon', id: 'scatter', pos: [-10, 0, 12] }, { kind: 'weapon', id: 'scatter', pos: [10, 0, -12] },
+    { kind: 'weapon', id: 'arc', pos: [0, 0, -15] }, { kind: 'weapon', id: 'plasma', pos: [0, 0, 15] },
+    { kind: 'booster', id: 'haste', pos: [-16, 0, 0] }, { kind: 'booster', id: 'regen', pos: [16, 0, 0] },
+    { kind: 'booster', id: 'shield', pos: [-18, 7, 0] }, { kind: 'booster', id: 'jump', pos: [18, 7, 0] },
+    { kind: 'health', amount: 25, pos: [-24, 0, -15] }, { kind: 'health', amount: 25, pos: [24, 0, 15] },
+    { kind: 'armor', amount: 25, pos: [24, 0, -15] }, { kind: 'armor', amount: 25, pos: [-24, 0, 15] },
+    { kind: 'health', amount: 25, pos: [-30, 7, 0] }, { kind: 'health', amount: 25, pos: [30, 7, 0] },
+  ],
+  botZones: [{ x0: -40, x1: 40, z0: -16, z1: 16, y: 0 }],
+};
+
 export const MAPS: Record<string, MapDef> = {
   boreal: { id: 'boreal', name: 'IRON CRADLE', desc: 'Floating islands, jump pads, one high tower', ...CRADLE },
   void: { id: 'void', name: 'DEEP VOID', desc: 'The same arena in a darker, colder light', ...CRADLE, theme: { ...T_DEFAULT, hemiSky: 0x9aa8d0, key: 0xb0bce0, ambient: 0x2a3048, lamp: 0x80a0ff, tint: [0.8, 0.88, 1.1] } },
@@ -365,6 +409,7 @@ export const MAPS: Record<string, MapDef> = {
   foundry: { id: 'foundry', name: 'FOUNDRY', desc: 'Sealed hall with a catwalk loop, lifts and a reactor core', ...FOUNDRY },
   crypt: { id: 'crypt', name: 'CRYPT', desc: 'Sealed halls and doorways, lifts to the catwalks. Close-quarters', ...CRYPT },
   ring: { id: 'ring', name: 'THE RING', desc: 'A loop around a void. Long lines of fire', ...RING },
+  canyon: { id: 'canyon', name: 'CANYON', desc: 'Wide open valley, high ridge decks, a bridge and a central island. Long sight lines', ...CANYON },
   tower: { id: 'tower', name: 'TOWER', desc: 'Sealed three-storey building with lifts, atrium and a top gallery', ...TOWER },
 };
 export const MAP_LIST = Object.values(MAPS);
