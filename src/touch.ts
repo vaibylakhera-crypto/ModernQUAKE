@@ -15,6 +15,8 @@ export interface TouchHooks {
   music(): void;
   playpause(): void;
   reload(): void;
+  /** a tap landed on a weapon slot of the weapon bar */
+  weapon(id: string): void;
 }
 
 export class TouchControls {
@@ -122,6 +124,9 @@ export class TouchControls {
   private start(e: TouchEvent) {
     e.preventDefault();
     for (const t of Array.from(e.changedTouches)) {
+      // the weapon bar sits under this layer: a tap on one of its slots picks that weapon
+      const slot = document.elementsFromPoint(t.clientX, t.clientY).find(el => el.classList.contains('wslot') && el.classList.contains('own')) as HTMLElement | undefined;
+      if (slot) { this.hooks.weapon(slot.id.replace(/^w-/, '')); flash(slot); continue; }
       const btn = (t.target as HTMLElement).closest?.('.tbtn') as HTMLElement | null;
       if (btn) {
         const b = btn.dataset.b;

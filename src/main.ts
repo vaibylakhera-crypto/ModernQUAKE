@@ -293,6 +293,7 @@ if (TOUCH) {
     pause() { touchPlaying = false; touch!.show(false); openPause(); },
     chat() { toggleQuick(); },
     reload() { if (vm.current === 'pistol') loadout.startReload(); },
+    weapon(id) { if (loadout.has(id as WeaponId)) vm.select(id as WeaponId); },
     music() { toggleMusicPanel(); },
     playpause() { music.toggle(); },
     mic(on) { if (voice.mode === 'open') { if (on) void voice.toggleOpen(); } else void voice.press(on); },
@@ -314,6 +315,7 @@ WEAPON_ORDER.forEach((id, i) => {
   const d = document.createElement('div'); d.className = 'wslot'; d.id = 'w-' + id; d.style.setProperty('--c', '#' + WEAPON_DEFS[id].color.toString(16).padStart(6, '0'));
   d.innerHTML = `<b>${i + 1}</b>${WEAPON_DEFS[id].name}<i></i>`; wbar.appendChild(d);
   d.addEventListener('touchstart', e => { e.preventDefault(); e.stopPropagation(); if (loadout.has(id)) vm.select(id); }, { passive: false });
+  d.addEventListener('pointerdown', e => { if (e.pointerType === 'mouse' && loadout.has(id)) { e.preventDefault(); vm.select(id); } });
 });
 let lastBar = '';
 function refreshBar() {
