@@ -176,6 +176,8 @@ export interface CombatHooks {
   /** the local player was hit by a projectile */
   hurt(dmg: number, dir: THREE.Vector3, weapon: WeaponId, owner: string): void;
   /** the local player's attack landed on a target (hit markers, damage numbers, sounds, kill feed) */
+  /** a bullet / bolt hit the world at this point (for the ricochet and impact sounds) */
+  impact?(p: THREE.Vector3): void;
   landed?(tg: Target, dmg: number, point: THREE.Vector3, weapon: WeaponId, killed: boolean, head?: boolean): void;
   /** an explosion happened at pos (sound) */
   boom?(pos: THREE.Vector3, size: number): void;
@@ -358,7 +360,7 @@ export class Combat {
     d.m.position.copy(p).addScaledVector(n, 0.025); d.m.lookAt(p.x + n.x, p.y + n.y, p.z + n.z); d.m.rotateZ(Math.random() * 6.28); d.m.scale.setScalar(size * (0.8 + Math.random() * 0.4)); d.m.visible = true; (d.m.material as THREE.MeshBasicMaterial).opacity = 1;
   }
   sparks(p: THREE.Vector3, n: THREE.Vector3, color: number, count: number) {
-    if (count >= 3) this.decal(p, n, count >= 10 ? 0.75 : 0.3);
+    if (count >= 3) { this.decal(p, n, count >= 10 ? 0.75 : 0.3); this.hooks.impact?.(p); }
     for (let i = 0; i < count; i++) {
       const v = new THREE.Vector3(Math.random() - .5, Math.random() - .5, Math.random() - .5).multiplyScalar(3).addScaledVector(n, 3 + Math.random() * 4);
       this.particles.spawn(p.clone().addScaledVector(n, 0.04), v, 0.25 + Math.random() * 0.3, 0.18, 0.03, color, { grav: 9 });

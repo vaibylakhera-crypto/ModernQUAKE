@@ -180,7 +180,7 @@ function adapt(ms: number) {
   lastFps = Math.round(1000 / avg); const worst = Math.round(worstMs); worstMs = 0; lastWorst = worst;
   // already at the lowest resolution and still slow: switch effects off, one step at a time
   if (avg > 24 && renderScale <= Q.minScale + 0.001) { if (++lowSecs >= 3 && fxLevel < 2) { fxLevel++; setFireQuality(fxLevel, TOUCH); lowSecs = 0; } } else lowSecs = 0;
-  if (document.body.classList.contains('perf')) { const a = sfx.stats(), ri = renderer.info.render; perfEl.textContent = `${lastFps} FPS (worst frame ${lastWorst} ms)  ·  ${Q.tier.toUpperCase()}  ·  res ${Math.round(renderScale * 100)}%\neffects level ${fxLevel}  ·  draws ${ri.calls}  ·  tris ${Math.round(ri.triangles / 1000)}k\naudio ${a.state}  ·  voices ${a.live}  ·  music ${music.playing ? 'on' : 'off'}\nping ${net.online ? Math.round((net as any).ping ?? 0) + ' ms' : 'solo'}`; }
+  if (document.body.classList.contains('perf')) { const a = sfx.stats(), ri = renderer.info.render; perfEl.textContent = `${lastFps} FPS (worst frame ${lastWorst} ms)  ·  ${Q.tier.toUpperCase()}  ·  res ${Math.round(renderScale * 100)}%\neffects level ${fxLevel}  ·  draws ${ri.calls}  ·  tris ${Math.round(ri.triangles / 1000)}k\naudio ${a.state}  ·  voices ${a.live}  ·  dropped ${a.dropped}  ·  music ${music.playing ? 'on' : 'off'}\nping ${net.online ? Math.round((net as any).ping ?? 0) + ' ms' : 'solo'}`; }
   if (avg > 18.5 && renderScale > Q.minScale) { renderScale = Math.max(Q.minScale, renderScale - 0.08); applyRes(); goodSecs = 0; }
   else if (avg < (TOUCH ? 17.4 : 12.5) && renderScale < (saverOn ? Math.min(Q.renderScale, 0.6) : Q.renderScale)) {
     // phones are capped at 60 fps, so "fast" means holding the cap; climb back slowly after 3 steady seconds
@@ -368,6 +368,7 @@ const combat = new Combat(scene, {
   friendly: tg => { const t = myTeam(); return t > 0 && ((tg as any).team ?? 0) === t; },
   ownerFriendly: owner => friendlyOwner(owner),
   hurt(dmg, dir, weapon, owner) { if (friendlyOwner(owner) || player.health <= 0 || player.invuln > 0) return; blame(owner, weapon); showDamageDir(-dir.x, -dir.z); buzz(30); player.knock(dir.x * 1.5, 0.3, dir.z * 1.5); sfx.hurt(); if (player.takeDamage(dmg)) die('DIED'); },
+  impact(p) { const d = p.distanceTo(camera.position); sfx.impact(Math.min(1, 14 / (d + 4)), panOf(p)); },
   landed(tg, dmg, point, weapon, killed, head) { onLanded(tg, dmg, point, weapon, killed, !!head); },
   boom(pos, size) { sfx.boom(size, pos.distanceTo(camera.position), panOf(pos)); },
   explode(pos, radius, dmg, knock, fromPlayer, weapon, owner) {
@@ -460,6 +461,7 @@ const botCtx: BotCtx = {
   hill: () => (cfg.mode === 'koth' ? { x: levelHill.pos[0], y: levelHill.pos[1], z: levelHill.pos[2], r: levelHill.r } : null),
   canRespawn: b => !(cfg.mode === 'lms' && matchState === 'playing' && deathsOfBot(b) >= LIVES),
   onKilled(b, by, w) {
+    { const d = b.pos.distanceTo(camera.position); sfx.bodyFall(Math.min(1, 14 / (d + 4)), panOf(b.pos)); }
     if (mode === 'online') { net.send({ t: 'botdead', id: b.netId, by: by ? Number(by) : net.id, w }); return; }
     soloKill(by || 'me', b.name);
     if (by && by !== 'me') { feed(by, (w in WEAPON_DEFS ? w : '') as WeaponId | '', b.name, false, false, false); }
@@ -1140,7 +1142,7 @@ function tryFire(dt: number) {
   touch?.setReload(vm.current === 'pistol' && loadout.mag < PISTOL_MAG);
   const id = vm.current; const st = WEAPON_DEFS[id].stats;
   if (!(firing() && locked()) || loadout.cooldown > 0 || vm.switching || matchState === 'ended' || deadT > 0) return;
-  if (!loadout.canFire(id)) { loadout.cooldown = 0.3; if (id !== 'blade' && id !== 'pistol') vm.select(loadout.best()); return; }
+  if (!loadout.canFire(id)) { sfx.dry(); loadout.cooldown = 0.3; if (id !== 'blade' && id !== 'pistol') vm.select(loadout.best()); return; }
   // keep the real fire rate even when a frame is slow: carry leftover time and fire up to 3 shots this frame
   for (let n = 0; n < 3 && loadout.cooldown <= 0 && loadout.canFire(id); n++) {
     const iv = loadoutRules.insta ? 0.8 : st.interval;

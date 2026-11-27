@@ -19,7 +19,7 @@ try { const v = localStorage.getItem('mq-vol'); if (v !== null) volume = Number(
 
 let masterGain: GainNode | null = null;
 function buildGraph(c: BaseAudioContext, out: AudioNode) {
-  const comp = c.createDynamicsCompressor(); comp.threshold.value = -20; comp.knee.value = 10; comp.ratio.value = 6; comp.attack.value = 0.002; comp.release.value = 0.14;
+  const comp = c.createDynamicsCompressor(); comp.threshold.value = -15; comp.knee.value = 18; comp.ratio.value = 3; comp.attack.value = 0.004; comp.release.value = 0.2;
   const tone = c.createBiquadFilter(); tone.type = 'lowpass'; tone.frequency.value = 9500; tone.Q.value = 0.5;      // takes the papery hiss off the top
   const makeup = c.createGain(); makeup.gain.value = 1.35;                                                           // the layers are mixed conservatively: bring the whole thing up
   masterGain = c.createGain(); masterGain.gain.value = volume;
@@ -50,10 +50,13 @@ export function unlock() {
 export function setVolume(v: number) { volume = v; if (masterGain) masterGain.gain.value = v; try { localStorage.setItem('mq-vol', String(v)); } catch { /* ignore */ } }
 export function getVolume() { return volume; }
 /** for the performance overlay */
-export function stats() { return { state: ctx ? ((ctx as AudioContext).state ?? 'offline') : 'none', live }; }
+export function stats() { return { state: ctx ? ((ctx as AudioContext).state ?? 'offline') : 'none', live, dropped, droppedVip }; }
 /** the shared audio context (music uses it so there is only one) */
 export function audioContext(): AudioContext | null { return ctx as AudioContext | null; }
-const ready = () => !!(ctx && master && noise && verb && slapIn && ((ctx as AudioContext).state === undefined || (ctx as AudioContext).state === 'running') && live < 28);
+/** `cap` = how many voices may already be playing for this sound to start: important sounds (your own gun, hits, hurt) get a high cap so a busy fight never silences them; background sounds get a low one */
+let dropped = 0, droppedVip = 0;
+const ready = (cap = 46) => { const ok = !!(ctx && master && noise && verb && slapIn && ((ctx as AudioContext).state === undefined || (ctx as AudioContext).state === 'running')); if (ok && live >= cap) { dropped++; if (cap >= 80) droppedVip++; return false; } return ok; };
+const VIP = 84;
 
 // ───────── building blocks ─────────
 const jit = (amt = 0.06) => 1 + (Math.random() * 2 - 1) * amt;
@@ -125,12 +128,12 @@ const gate = (k: string, ms: number) => { const n = performance.now(); if (n - (
  */
 /** other people's / bots' shots at a distance: two layers only, no reverb, and skipped when the mixer is busy (keeps your own gun and the music clean) */
 function farShot(id: WeaponId, vol: number, pan: number) {
-  if (live > 16) return; const b = bus(0.95 * vol, pan, 0);
-  nz(b, { dur: 0.07, peak: 0.8, type: 'bandpass', f0: 1100 * jit(0.2), f1: 500, q: 0.7, grit: true });
+  if (live > 30) return; const b = bus(0.95 * vol, pan, 0);
+  nz(b, { dur: 0.07, peak: 0.8, type: 'bandpass', f0: (500 + 900 * vol) * jit(0.2), f1: 450, q: 0.7, grit: true });     // farther = duller
   thump(b, { dur: 0.1, peak: 0.5, f: id === 'rocket' || id === 'scatter' ? 70 : 105 });
 }
 export function shot(id: WeaponId, vol = 1, pan = 0) {
-  if (!ready() || vol < 0.03) return;
+  if (!ready(VIP) || vol < 0.03) return;
   if (vol < 0.6) { farShot(id, vol, pan); return; }
   const j = jit(0.1);
   switch (id) {
@@ -214,26 +217,42 @@ export function shot(id: WeaponId, vol = 1, pan = 0) {
 }
 /** our attack landed: a short bright "tink" (steady pitch) with a tiny click */
 export function hit(dmg: number) {
-  if (!ready() || !gate('hit', 45)) return;
+  if (!ready(VIP) || !gate('hit', 45)) return;
   const b = bus(1.3, 0, 0.1), k = 1 + Math.min(0.3, dmg / 260);
   ring(b, { dur: 0.07, peak: 0.4, f: 2300 * k }); ring(b, { dur: 0.05, peak: 0.16, f: 3450 * k, type: 'triangle' });
   nz(b, { dur: 0.012, peak: 0.12, type: 'bandpass', f0: 4200, f1: 3500, q: 1 });
 }
+/** a bullet or bolt hitting a wall: a sharp tick, and now and then a ricochet whine */
+export function impact(vol = 1, pan = 0) {
+  if (!ready(34) || vol < 0.08 || !gate('impact', 55)) return; const b = bus(0.55 * vol, pan, 0.1);
+  nz(b, { dur: 0.03, peak: 0.5, type: 'bandpass', f0: 2600 * jit(0.2), f1: 1500, q: 1.2, grit: true }); thump(b, { dur: 0.05, peak: 0.25, f: 190 });
+  if (Math.random() < 0.28) tn(b, { t: 0.01, dur: 0.22, peak: 0.1, type: 'sine', f0: 3400 * jit(0.15), f1: 1100 });
+}
+/** a fighter going down: a heavy thud and a crumple */
+export function bodyFall(vol = 1, pan = 0) {
+  if (!ready(40) || vol < 0.08 || !gate('fall', 120)) return; const b = bus(0.8 * vol, pan, 0.2);
+  thump(b, { t: 0.03, dur: 0.22, peak: 0.8, f: 62, drop: 1.8 }); nz(b, { dur: 0.16, peak: 0.3, type: 'lowpass', f0: 900, f1: 120, q: 0.6 }); nz(b, { t: 0.06, dur: 0.1, peak: 0.12, type: 'bandpass', f0: 1800, f1: 600, q: 1 });
+}
+/** pulling the trigger on an empty gun (or one that is reloading) */
+export function dry() {
+  if (!ready(VIP) || !gate('dry', 260)) return; const b = bus(0.5, 0, 0.05);
+  nz(b, { dur: 0.015, peak: 0.3, type: 'highpass', f0: 2400, f1: 2000, grit: true }); thump(b, { t: 0.01, dur: 0.05, peak: 0.25, f: 160, drop: 1.2 }); ring(b, { dur: 0.04, peak: 0.07, f: 3600 });
+}
 /** a headshot: a sharp high crack with a bright ring on top of the normal hit tick */
 export function headshot() {
-  if (!ready() || !gate('head', 60)) return; const b = bus(1.3, 0, 0.12);
+  if (!ready(VIP) || !gate('head', 60)) return; const b = bus(1.3, 0, 0.12);
   ring(b, { dur: 0.09, peak: 0.45, f: 3300 }); ring(b, { dur: 0.12, peak: 0.28, f: 4950, type: 'triangle' }); ring(b, { t: 0.04, dur: 0.18, peak: 0.16, f: 6600 });
   nz(b, { dur: 0.02, peak: 0.3, type: 'highpass', f0: 3800, f1: 3000, grit: true }); thump(b, { dur: 0.08, peak: 0.35, f: 160, drop: 1.4 });
 }
 /** a frag: a short rising two-note chime */
 export function kill() {
-  if (!ready()) return; const b = bus(0.62, 0, 0.35);
+  if (!ready(VIP)) return; const b = bus(0.62, 0, 0.35);
   tn(b, { dur: 0.14, peak: 0.4, type: 'triangle', f0: 880, f1: 880 }); tn(b, { t: 0.1, dur: 0.3, peak: 0.42, type: 'triangle', f0: 1320, f1: 1320 });
   tn(b, { t: 0.1, dur: 0.3, peak: 0.12, type: 'sine', f0: 1980, f1: 1980 }); tn(b, { dur: 0.25, peak: 0.25, type: 'sine', f0: 220, f1: 165 });
 }
 /** an explosion: sub thump, rolling body, sharp crack and falling debris. quieter with distance, panned */
 export function boom(size: number, dist: number, pan = 0) {
-  if (!ready()) return; const vol = Math.min(1, 15 / (dist + 6)) * Math.min(1.25, size / 3.5); if (vol < 0.04) return;
+  if (!ready(VIP)) return; const vol = Math.min(1, 15 / (dist + 6)) * Math.min(1.25, size / 3.5); if (vol < 0.04) return;
   const b = bus(1.0 * vol, pan, 0.62, 0.3);
   thump(b, { dur: 0.8, peak: 1.0, f: 46, drop: 2.2 });
   nz(b, { dur: 1.0, peak: 0.85, type: 'lowpass', f0: 2200, f1: 70, q: 0.5, grit: true });
@@ -243,7 +262,7 @@ export function boom(size: number, dist: number, pan = 0) {
 }
 /** the hit that plays under an announcer line: a low boom, a brass-like chord and (for big calls) a riser and crash */
 export function stinger(level: number) {
-  if (!ready()) return; const b = bus(0.9, 0, 0.5, 0.2);
+  if (!ready(VIP)) return; const b = bus(0.9, 0, 0.5, 0.2);
   thump(b, { dur: 0.7, peak: 0.9, f: 52, drop: 2 });
   nz(b, { dur: 0.35, peak: 0.45, type: 'lowpass', f0: 1800, f1: 120, grit: true });
   const chord = level >= 3 ? [110, 165, 220, 330] : [110, 165, 220];
@@ -256,7 +275,7 @@ export function stinger(level: number) {
   if (level >= 3) { nz(b, { t: 0.4, dur: 1.0, peak: 0.35, type: 'highpass', f0: 3600, f1: 3600 }); ring(b, { t: 0.4, dur: 0.9, peak: 0.1, f: 880, type: 'triangle' }); }
 }
 /** we took damage: a dull thump with a grunt-like noise */
-export function hurt() { if (!ready() || !gate('hurt', 80)) return; const b = bus(1.1, 0, 0.18); tn(b, { dur: 0.16, peak: 0.55, type: 'sine', f0: 170, f1: 58 }); nz(b, { dur: 0.13, peak: 0.3, type: 'lowpass', f0: 1300, f1: 180 }); }
+export function hurt() { if (!ready(VIP) || !gate('hurt', 80)) return; const b = bus(1.1, 0, 0.18); tn(b, { dur: 0.16, peak: 0.55, type: 'sine', f0: 170, f1: 58 }); nz(b, { dur: 0.13, peak: 0.3, type: 'lowpass', f0: 1300, f1: 180 }); }
 /** a footstep: a dull boot thump on a hard floor, with a tiny metallic scuff. `k` 0..1 = how fast you run */
 export function step(k = 1, vol = 1, pan = 0, other = false) {
   if (!ready() || live > (other ? 10 : 14) || vol < 0.05 || !gate(other ? 'stepo' : 'step', other ? 45 : 110)) return; const b = bus((0.3 + 0.32 * k) * vol, pan, 0);          // no reverb send: footsteps are frequent
@@ -329,8 +348,8 @@ export function teleport() {
   thump(b, { t: 0.28, dur: 0.3, peak: 0.7, f: 58, drop: 2 });                                                          // the thud of arriving
   for (let i = 0; i < 4; i++) ring(b, { t: 0.18 + i * 0.07, dur: 0.3, peak: 0.07, f: [2093, 2637, 3136, 3951][i], type: 'sine' });   // sparkle tail
 }
-export function powerup() { if (!ready()) return; const b = bus(0.6, 0, 0.4); tn(b, { dur: 0.12, peak: 0.28, type: 'square', f0: 440, f1: 880 }); tn(b, { t: 0.1, dur: 0.14, peak: 0.28, type: 'square', f0: 660, f1: 1320 }); tn(b, { t: 0.2, dur: 0.34, peak: 0.26, type: 'triangle', f0: 880, f1: 1760 }); }
-export function died() { if (!ready()) return; const b = bus(0.7, 0, 0.5); tn(b, { dur: 0.7, peak: 0.4, type: 'sawtooth', f0: 320, f1: 48 }); nz(b, { dur: 0.5, peak: 0.3, type: 'lowpass', f0: 1500, f1: 90 }); }
+export function powerup() { if (!ready(VIP)) return; const b = bus(0.6, 0, 0.4); tn(b, { dur: 0.12, peak: 0.28, type: 'square', f0: 440, f1: 880 }); tn(b, { t: 0.1, dur: 0.14, peak: 0.28, type: 'square', f0: 660, f1: 1320 }); tn(b, { t: 0.2, dur: 0.34, peak: 0.26, type: 'triangle', f0: 880, f1: 1760 }); }
+export function died() { if (!ready(VIP)) return; const b = bus(0.7, 0, 0.5); tn(b, { dur: 0.7, peak: 0.4, type: 'sawtooth', f0: 320, f1: 48 }); nz(b, { dur: 0.5, peak: 0.3, type: 'lowpass', f0: 1500, f1: 90 }); }
 
 let fakeClock = 1e6;
 /** test hook: render one sound into an offline buffer so it can be measured without speakers */
