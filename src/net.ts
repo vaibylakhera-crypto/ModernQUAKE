@@ -200,6 +200,7 @@ export class Net {
         case 'renamed': this.ev.renamed(m.id, m.name, m.board); break;
         case 'leave': this.ev.leave(m.id); break;
         case 'state': this.ev.state(m.id, m); break;
+        case 'states': for (const e of m.l as any[]) if (e && e.id !== this.id) this.ev.state(e.id, e); break;
         case 'fire': this.ev.fire(m.id, m); break;
         case 'hit': this.ev.hit(m.from, m.dmg, m.dir, m.kind); break;
         case 'killed': this.ev.killed(m.id, m.by, m.board, typeof m.w === 'string' ? m.w : '', m.ts, !!m.cap); break;

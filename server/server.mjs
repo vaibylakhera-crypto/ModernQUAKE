@@ -14,6 +14,7 @@ const COLORS = [0xff4a3a, 0x35d0ff, 0xffb02e, 0xff2fa0, 0x7dff6a, 0xb08cff, 0x2e
 
 // Static files: ETag + 304 so phones only download each file once, gzip for text/geometry, long caching for assets.
 const GZ = new Set(['.html', '.js', '.css', '.json', '.gltf', '.bin', '.svg', '.txt', '.webmanifest']);
+let memoBytes = 0;
 const memo = new Map();   // path -> { mtime, etag, raw, gz }
 function cacheFor(p) {
   if (p.startsWith('/assets/')) return 'public, max-age=31536000, immutable';           // vite output: hashed names
@@ -22,6 +23,7 @@ function cacheFor(p) {
 }
 const server = http.createServer((req, res) => {
   let p = decodeURIComponent((req.url || '/').split('?')[0]); if (p === '/') p = '/index.html';
+  if (p === '/api/health') { res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }).end(JSON.stringify(health())); return; }
   if (p === '/api/rooms') { res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }).end(JSON.stringify(listRooms())); return; }
   const f = path.normalize(path.join(root, p));
   if (!f.startsWith(root)) { res.writeHead(403).end(); return; }
@@ -41,10 +43,13 @@ const server = http.createServer((req, res) => {
     if (m && m.etag === etag) { serve(m); return; }
     fs.readFile(f, (err2, raw) => {
       if (err2) { res.writeHead(404).end('not found'); return; }
-      const e = { etag, raw, gz: GZ.has(ext) && raw.length > 1024 ? zlib.gzipSync(raw, { level: 9 }) : null };
-      if (e.gz && e.gz.length >= raw.length) e.gz = null;
-      if (raw.length < 8e6) memo.set(f, e);
-      serve(e);
+      const finish = gz => {
+        const e = { etag, raw, gz: gz && gz.length < raw.length ? gz : null };
+        if (raw.length < 8e6) { memoBytes += raw.length + (e.gz ? e.gz.length : 0); if (memoBytes > 120e6) { memo.clear(); memoBytes = raw.length; } memo.set(f, e); }
+        serve(e);
+      };
+      // compress off the main thread (a blocking max-level gzip froze the whole server, game relay included, on the small free machine)
+      if (GZ.has(ext) && raw.length > 1024) zlib.gzip(raw, { level: 6 }, (ze, gz) => finish(ze ? null : gz)); else finish(null);
     });
   });
 });
@@ -85,12 +90,34 @@ function cleanCfg(c, prev = DEF_CFG) {
 }
 
 const wss = new WebSocketServer({ server, path: '/ws', maxPayload: 16384 });
+// ---- keep the machine healthy: drop dead connections, never let a slow phone back the server up, report vitals ----
+let msgCount = 0, lastRate = 0, lagMax = 0, lagNow = 0;
+{ let t0 = Date.now(); setInterval(() => { const n = Date.now(); lagNow = Math.max(0, n - t0 - 500); lagMax = Math.max(lagMax * 0.9, lagNow); t0 = n; }, 500); }
+setInterval(() => { lastRate = Math.round(msgCount / 10); msgCount = 0; }, 10000);
+const health = () => ({
+  up: Math.round(process.uptime()), rssMB: Math.round(process.memoryUsage().rss / 1048576), heapMB: Math.round(process.memoryUsage().heapUsed / 1048576),
+  rooms: rooms.size, players: [...rooms.values()].reduce((a, r) => a + r.players.size, 0), sockets: wss.clients.size, msgsPerSec: lastRate, loopLagMs: Math.round(lagNow), loopLagPeakMs: Math.round(lagMax),
+});
+setInterval(() => { const h = health(); console.log(`[health] up ${h.up}s · rss ${h.rssMB} MB · rooms ${h.rooms} · players ${h.players} · ${h.msgsPerSec} msg/s · loop lag ${h.loopLagMs} ms`); }, 60000);
+// a phone that locked its screen or lost signal leaves a half-open connection: ping everyone, and cut off whoever does not answer
+wss.on('connection', ws => { ws.isAlive = true; ws.on('pong', () => { ws.isAlive = true; }); });
+setInterval(() => { for (const ws of wss.clients) { if (ws.isAlive === false) { ws.terminate(); continue; } ws.isAlive = false; try { ws.ping(); } catch { /* gone */ } } }, 20000);
+const SLOW = 600 * 1024, DEAD = 6 * 1024 * 1024;
+
 const send = (ws, o) => { if (ws.readyState === 1) ws.send(JSON.stringify(o)); };
 const board = room => [
   ...[...room.players.entries()].map(([id, p]) => ({ id, name: p.name, color: p.color, team: p.team, frags: p.frags, deaths: p.deaths })),
   ...[...room.bots.entries()].map(([id, b]) => ({ id, name: b.name, color: b.color, team: b.team, frags: b.frags, deaths: b.deaths, bot: true, weapon: b.weapon })),
 ];
-const bcast = (room, o, except) => { const s = JSON.stringify(o); for (const [id, p] of room.players) if (id !== except && p.ws.readyState === 1) p.ws.send(s); };
+const LOSSY = new Set(['state', 'states', 'bots']);      // positions: the next one replaces a lost one, so they are skipped for a phone that is falling behind
+const bcast = (room, o, except) => {
+  const s = JSON.stringify(o), lossy = LOSSY.has(o.t);
+  for (const [id, p] of room.players) {
+    if (id === except || p.ws.readyState !== 1) continue;
+    const q = p.ws.bufferedAmount; if (q > DEAD) { p.ws.terminate(); continue; } if (lossy && q > SLOW) continue;
+    p.ws.send(s);
+  }
+};
 const bcastTeam = (room, team, o) => { const s = JSON.stringify(o); for (const p of room.players.values()) if ((!team || p.team === team) && p.ws.readyState === 1) p.ws.send(s); };
 const usedColors = room => new Set([...room.players.values(), ...room.bots.values()].map(p => p.color));
 const pickColor = (room, id) => COLORS.find(c => !usedColors(room).has(c)) ?? COLORS[id % COLORS.length];
@@ -196,11 +223,12 @@ wss.on('connection', (ws, req) => {
   let last = 0, lastChat = 0;
   const isHost = () => room.host === id;
   ws.on('message', raw => {
+    msgCount++;
     let m; try { m = JSON.parse(raw); } catch { return; }
     const me = room.players.get(id); if (!me || !m || typeof m !== 'object') return;
     switch (m.t) {
       case 'ping': send(ws, { t: 'pong', c: m.c }); break;
-      case 'state': { const n = Date.now(); if (n - last < 20) return; last = n; me.p = okPos(m.p) || me.p; bcast(room, { t: 'state', id, p: m.p, yaw: m.yaw, pitch: m.pitch, w: m.w, hp: m.hp, dead: m.dead, v: m.v, n: m.n }, id); break; }
+      case 'state': { const n = Date.now(); if (n - last < 20) return; last = n; me.p = okPos(m.p) || me.p; me.st = { id, p: m.p, yaw: m.yaw, pitch: m.pitch, w: m.w, hp: m.hp, dead: m.dead, v: m.v, n: m.n }; me.dirty = true; break; }
       case 'bots': if (isHost() && Array.isArray(m.l)) bcast(room, { t: 'bots', l: m.l.slice(0, MAX_BOTS) }, id); break;
       case 'fire': {
         const as = Number(m.as);                                   // the host fires on behalf of its bots
@@ -305,6 +333,15 @@ wss.on('connection', (ws, req) => {
     if (teamMode(room)) { assignTeams(room); bcast(room, { t: 'cfg', ...roomInfo(room) }); }
   });
 });
+
+// players' positions go out together, 20 times a second, as one message per room (instead of one message per player per update)
+setInterval(() => {
+  for (const room of rooms.values()) {
+    if (room.players.size < 2) { for (const p of room.players.values()) p.dirty = false; continue; }
+    const l = []; for (const p of room.players.values()) if (p.dirty && p.st) { l.push(p.st); p.dirty = false; }
+    if (l.length) bcast(room, { t: 'states', l });
+  }
+}, 50);
 
 /** GET /api/rooms: open games for the JOIN screen */
 function listRooms() {
